@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext.jsx';
 import {
-  getChild, listHeights, addHeight, deleteHeight, deleteChild,
+  getChild, listHeights, addHeight, updateHeight, deleteHeight, deleteChild,
 } from '../lib/children.js';
 import AddHeightForm from '../components/AddHeightForm.jsx';
 import GrowthChart from '../components/GrowthChart.jsx';
@@ -39,6 +39,11 @@ export default function ChildDetailPage() {
 
   const onAddHeight = async (data) => {
     await addHeight(user.uid, childId, data);
+    await reload();
+  };
+
+  const onUpdateHeight = async (id, data) => {
+    await updateHeight(user.uid, childId, id, data);
     await reload();
   };
 
@@ -94,7 +99,7 @@ export default function ChildDetailPage() {
 
       <section className="bg-white rounded-lg shadow p-4">
         <h3 className="text-lg font-semibold mb-2">All measurements ({heights.length})</h3>
-        <HeightTable heights={heights} child={child} onDelete={onDeleteHeight} />
+        <HeightTable heights={heights} child={child} onUpdate={onUpdateHeight} onDelete={onDeleteHeight} />
       </section>
     </div>
   );
