@@ -3,10 +3,20 @@ import {
   inToCm, lbOzToKg, formatFeetInchesPrecise,
 } from '../lib/units.js';
 
+// Convert ft + in fields to total inches. Blank ft counts as 0 so a user
+// can type just inches if they want.
+function ftInToInches(ft, inches) {
+  const f = Number(ft) || 0;
+  const i = Number(inches) || 0;
+  if (f <= 0 && i <= 0) return null;
+  return f * 12 + i;
+}
+
 export default function AddHeightForm({ onAdd }) {
   const today = new Date().toISOString().slice(0, 10);
   const [date, setDate] = useState(today);
-  const [inches, setInches] = useState('');
+  const [heightFt, setHeightFt] = useState('');
+  const [heightIn, setHeightIn] = useState('');
   const [weightLb, setWeightLb] = useState('');
   const [weightOz, setWeightOz] = useState('');
   const [note, setNote] = useState('');
@@ -14,11 +24,11 @@ export default function AddHeightForm({ onAdd }) {
   const [error, setError] = useState(null);
 
   const heightPreview = useMemo(() => {
-    const n = Number(inches);
-    if (!Number.isFinite(n) || n <= 0) return null;
-    const cm = inToCm(n);
+    const total = ftInToInches(heightFt, heightIn);
+    if (total == null || total <= 0) return null;
+    const cm = inToCm(total);
     return `${formatFeetInchesPrecise(cm)} · ${cm.toFixed(1)} cm`;
-  }, [inches]);
+  }, [heightFt, heightIn]);
 
   const weightPreview = useMemo(() => {
     const lb = Number(weightLb) || 0;
@@ -32,12 +42,12 @@ export default function AddHeightForm({ onAdd }) {
   const submit = async (e) => {
     e.preventDefault();
     setError(null);
-    const n = Number(inches);
-    if (!Number.isFinite(n) || n <= 0) {
-      setError('Enter a height in inches');
+    const total = ftInToInches(heightFt, heightIn);
+    if (total == null || total <= 0) {
+      setError('Enter a height in feet and inches');
       return;
     }
-    const heightCm = inToCm(n);
+    const heightCm = inToCm(total);
     const weightKg = lbOzToKg(weightLb, weightOz);
     setBusy(true);
     try {
@@ -47,7 +57,8 @@ export default function AddHeightForm({ onAdd }) {
         weightKg,
         note: note || null,
       });
-      setInches(''); setWeightLb(''); setWeightOz(''); setNote('');
+      setHeightFt(''); setHeightIn('');
+      setWeightLb(''); setWeightOz(''); setNote('');
     } catch (err) {
       setError(err.message || 'Save failed');
     } finally {
@@ -65,12 +76,22 @@ export default function AddHeightForm({ onAdd }) {
 
       <div>
         <label className="block text-sm font-medium text-slate-700">
-          Height (inches)
+          Height
         </label>
-        <input type="number" min="10" max="90" step="0.25" value={inches}
-          onChange={(e) => setInches(e.target.value)}
-          placeholder="e.g. 58.5"
-          className="mt-1 w-full border border-slate-300 rounded px-3 py-2" />
+        <div className="grid grid-cols-2 gap-3 mt-1">
+          <div>
+            <input type="number" min="0" max="7" step="1" value={heightFt}
+              onChange={(e) => setHeightFt(e.target.value)}
+              placeholder="ft"
+              className="w-full border border-slate-300 rounded px-3 py-2" />
+          </div>
+          <div>
+            <input type="number" min="0" max="11.75" step="0.25" value={heightIn}
+              onChange={(e) => setHeightIn(e.target.value)}
+              placeholder="in"
+              className="w-full border border-slate-300 rounded px-3 py-2" />
+          </div>
+        </div>
         {heightPreview && (
           <p className="text-xs text-slate-500 mt-1">= {heightPreview}</p>
         )}
