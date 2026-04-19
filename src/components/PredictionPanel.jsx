@@ -1,10 +1,16 @@
-// PredictionPanel — run all three predictors against the latest measurement
-// and show the consensus plus per-method breakdown.
+// PredictionPanel — run all three predictors and show the consensus plus
+// per-method breakdown.
 //
 // Design: lead with a single "best guess" number in familiar feet/inches,
 // then show a confidence range, then list the three methods so the user can
-// see which agree and which don't. Bad inputs (missing parents, under age 4)
-// degrade gracefully — we just drop that method and tell the user why.
+// see which agree and which don't. Bad inputs (missing parents, under age 4,
+// no measurement yet) degrade gracefully — we just drop that method and
+// tell the user why.
+//
+// Zero-measurement path: if both parents are set but no heights are logged
+// yet, mid-parental alone still produces a prediction. As the user adds
+// measurements, Khamis-Roche and CDC percentile kick in and refine the
+// consensus.
 
 import React, { useMemo } from 'react';
 import { combinePredictions } from '../predictions/index.js';
@@ -36,32 +42,26 @@ function MethodRow({ label, cm, sdCm, note }) {
 }
 
 export default function PredictionPanel({ child, latest }) {
+  const hasMeasurement = latest != null;
+
   const prediction = useMemo(() => {
-    if (!latest) return null;
     return combinePredictions({
       sex: child.sex,
       birthDate: child.birthDate,
-      measurementDate: latest.measurementDate,
-      currentHeightCm: latest.heightCm,
-      currentWeightKg: latest.weightKg ?? null,
+      measurementDate: latest?.measurementDate ?? null,
+      currentHeightCm: latest?.heightCm ?? null,
+      currentWeightKg: latest?.weightKg ?? null,
       motherHeightCm: child.motherHeightCm ?? null,
       fatherHeightCm: child.fatherHeightCm ?? null,
     });
   }, [child, latest]);
 
-  if (!latest) {
-    return (
-      <p className="text-sm text-slate-500">
-        Add a height measurement and we'll predict {child.name}'s adult height.
-      </p>
-    );
-  }
-
   if (!prediction || !prediction.consensus) {
     return (
       <p className="text-sm text-slate-500">
-        Not enough data yet to predict. Try adding another measurement or filling
-        in both parents' heights on this child's profile.
+        Fill in both parent heights on {child.name}'s profile, or add a height
+        measurement below. Either one gets you a first estimate; together they
+        refine it.
       </p>
     );
   }
@@ -85,9 +85,15 @@ export default function PredictionPanel({ child, latest }) {
         <p className="text-xs text-slate-500 mt-1">
           Based on {consensus.pointCount} method{consensus.pointCount === 1 ? '' : 's'}.
           {spreadCm != null && spreadCm > 10 && (
-            <> Methods disagree by {spreadCm.toFixed(1)} cm — take with a grain of salt.</>
+            <> Methods disagree by {spreadCm.toFixed(1)} cm, take with a grain of salt.</>
           )}
         </p>
+        {!hasMeasurement && (
+          <p className="text-xs text-brand-700 mt-2">
+            Parent heights only. Add a measurement below and the prediction
+            will refine.
+          </p>
+        )}
       </div>
 
       <div>
@@ -108,7 +114,7 @@ export default function PredictionPanel({ child, latest }) {
               sdCm={results.khamisRoche?.inAgeRange ? results.khamisRoche.sdCm : null}
               note={
                 !results.khamisRoche
-                  ? 'Needs height, weight, parents'
+                  ? (hasMeasurement ? 'Needs height, weight, parents' : 'Needs a height measurement')
                   : !results.khamisRoche.inAgeRange
                     ? 'Child outside age 4-17.5'
                     : ''
@@ -118,6 +124,7 @@ export default function PredictionPanel({ child, latest }) {
               label="CDC percentile"
               cm={results.cdcPercentile?.predictedAdultHeightCm}
               sdCm={results.cdcPercentile?.sdCm}
+              note={!results.cdcPercentile && !hasMeasurement ? 'Needs a height measurement' : ''}
             />
           </tbody>
         </table>
@@ -132,7 +139,7 @@ export default function PredictionPanel({ child, latest }) {
 
       <p className="text-xs text-slate-400 leading-relaxed border-t border-slate-200 pt-2">
         These are estimates based on population averages. Every child is different,
-        and growth can surprise you — especially around puberty. If you're worried
+        and growth can surprise you, especially around puberty. If you're worried
         about growth, talk to your pediatrician.
       </p>
     </div>
