@@ -1,0 +1,45 @@
+name: Deploy to Netlify
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - run: npm install --no-audit --no-fund
+
+      - run: npm run verify
+        continue-on-error: false
+
+      - run: npm run build
+        env:
+          VITE_FIREBASE_API_KEY: AIzaSyD67sHoAZLF5I6NDr0DTaXneyPAL_imJJo
+          VITE_FIREBASE_AUTH_DOMAIN: child-height-predictor.firebaseapp.com
+          VITE_FIREBASE_PROJECT_ID: child-height-predictor
+          VITE_FIREBASE_STORAGE_BUCKET: child-height-predictor.firebasestorage.app
+          VITE_FIREBASE_MESSAGING_SENDER_ID: '918662953002'
+          VITE_FIREBASE_APP_ID: '1:918662953002:web:4781f4bbd26ec07580ab53'
+
+      - uses: nwtgck/actions-netlify@v3.0
+        with:
+          publish-dir: ./dist
+          production-deploy: true
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          deploy-message: "GitHub Actions deploy (${{ github.sha }})"
+          enable-pull-request-comment: false
+          enable-commit-comment: true
+          overwrites-pull-request-comment: false
+        env:
+          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+          NETLIFY_SITE_ID: 41cf7df5-15bd-45ad-8b25-a1548e6f33b0
+        timeout-minutes: 5
