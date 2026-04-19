@@ -47,7 +47,7 @@ export function formatFeetInchesPrecise(cm) {
 }
 
 // Format cm as "Xcm (Y'Z")".
-export function formatHeight(cm, { showCm = true, showFtIn = true } = {}) {
+export function formatHeight(cm, { showCm = false, showFtIn = true } = {}) {
   const parts = [];
   if (showCm) parts.push(`${cm.toFixed(1)}cm`);
   if (showFtIn) parts.push(formatFeetInches(cm));

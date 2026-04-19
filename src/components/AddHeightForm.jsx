@@ -27,7 +27,7 @@ export default function AddHeightForm({ onAdd }) {
     const total = ftInToInches(heightFt, heightIn);
     if (total == null || total <= 0) return null;
     const cm = inToCm(total);
-    return `${formatFeetInchesPrecise(cm)} · ${cm.toFixed(1)} cm`;
+    return formatFeetInchesPrecise(cm);
   }, [heightFt, heightIn]);
 
   const weightPreview = useMemo(() => {

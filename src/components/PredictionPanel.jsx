@@ -1,20 +1,14 @@
 // PredictionPanel — run all three predictors and show the consensus plus
 // per-method breakdown.
 //
-// Design: lead with a single "best guess" number in familiar feet/inches,
-// then show a confidence range, then list the three methods so the user can
-// see which agree and which don't. Bad inputs (missing parents, under age 4,
-// no measurement yet) degrade gracefully — we just drop that method and
-// tell the user why.
-//
 // Zero-measurement path: if both parents are set but no heights are logged
-// yet, mid-parental alone still produces a prediction. As the user adds
+// yet, mid-parental alone produces a prediction. As the user adds
 // measurements, Khamis-Roche and CDC percentile kick in and refine the
 // consensus.
 
 import React, { useMemo } from 'react';
 import { combinePredictions } from '../predictions/index.js';
-import { formatFeetInches } from '../lib/units.js';
+import { formatFeetInches, cmToIn } from '../lib/units.js';
 
 function MethodRow({ label, cm, sdCm, note }) {
   return (
@@ -24,17 +18,12 @@ function MethodRow({ label, cm, sdCm, note }) {
         {cm == null ? (
           <span className="text-slate-400">not available</span>
         ) : (
-          <>
-            {formatFeetInches(cm)}{' '}
-            <span className="text-slate-500 font-normal text-xs">
-              ({cm.toFixed(1)} cm)
-            </span>
-          </>
+          formatFeetInches(cm)
         )}
       </td>
       <td className="py-2 text-slate-500 text-xs">
         {sdCm != null && cm != null
-          ? `± ${(2 * sdCm).toFixed(1)} cm (95%)`
+          ? `± ${(2 * cmToIn(sdCm)).toFixed(1)} in (95%)`
           : note || ''}
       </td>
     </tr>
@@ -68,6 +57,7 @@ export default function PredictionPanel({ child, latest }) {
 
   const { results, consensus, spreadCm } = prediction;
   const consCm = consensus.predictedAdultHeightCm;
+  const spreadIn = spreadCm != null ? cmToIn(spreadCm) : null;
 
   return (
     <div className="space-y-4">
@@ -80,12 +70,11 @@ export default function PredictionPanel({ child, latest }) {
         </p>
         <p className="text-sm text-slate-600">
           95% range: {formatFeetInches(consensus.rangeLowCm)} to {formatFeetInches(consensus.rangeHighCm)}
-          {' '}({consensus.rangeLowCm.toFixed(1)}–{consensus.rangeHighCm.toFixed(1)} cm)
         </p>
         <p className="text-xs text-slate-500 mt-1">
           Based on {consensus.pointCount} method{consensus.pointCount === 1 ? '' : 's'}.
-          {spreadCm != null && spreadCm > 10 && (
-            <> Methods disagree by {spreadCm.toFixed(1)} cm, take with a grain of salt.</>
+          {spreadIn != null && spreadIn > 4 && (
+            <> Methods disagree by {spreadIn.toFixed(1)} in, take with a grain of salt.</>
           )}
         </p>
         {!hasMeasurement && (

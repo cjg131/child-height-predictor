@@ -18,7 +18,7 @@ function ParentHeight({ label, ft, inches, onChangeFt, onChangeIn }) {
     const total = ftInToInches(ft, inches);
     if (total == null || total <= 0) return null;
     const cm = inToCm(total);
-    return `${formatFeetInchesPrecise(cm)} · ${cm.toFixed(1)} cm`;
+    return formatFeetInchesPrecise(cm);
   }, [ft, inches]);
 
   return (
