@@ -43,7 +43,13 @@ function EditRow({ h, onSave, onCancel }) {
   const [weightOz, setWeightOz] = useState(
     h.weightKg != null ? String(initialWeight.oz) : ''
   );
+  const [tannerStage, setTannerStage] = useState(h.tannerStage != null ? String(h.tannerStage) : '');
+  const [shoeSizeUs, setShoeSizeUs] = useState(h.shoeSizeUs != null ? String(h.shoeSizeUs) : '');
+  const [boneAgeYears, setBoneAgeYears] = useState(h.boneAgeYears != null ? String(h.boneAgeYears) : '');
   const [note, setNote] = useState(h.note || '');
+  const [showAdvanced, setShowAdvanced] = useState(
+    h.tannerStage != null || h.shoeSizeUs != null || h.boneAgeYears != null
+  );
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
 
@@ -71,6 +77,9 @@ function EditRow({ h, onSave, onCancel }) {
         measurementDate: date,
         heightCm,
         weightKg,
+        tannerStage: tannerStage ? Number(tannerStage) : null,
+        shoeSizeUs: shoeSizeUs ? Number(shoeSizeUs) : null,
+        boneAgeYears: boneAgeYears ? Number(boneAgeYears) : null,
         note: note || null,
       });
     } catch (err) {
@@ -126,6 +135,38 @@ function EditRow({ h, onSave, onCancel }) {
               placeholder="optional" />
           </div>
         </div>
+        <button type="button" onClick={() => setShowAdvanced((v) => !v)}
+          className="mt-2 text-xs text-brand-600 hover:text-brand-700 underline">
+          {showAdvanced ? 'Hide' : 'Show'} extra signals
+        </button>
+        {showAdvanced && (
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mt-2 bg-white rounded p-2 border border-slate-200">
+            <div>
+              <label className="block text-xs text-slate-600">Tanner</label>
+              <select value={tannerStage} onChange={(e) => setTannerStage(e.target.value)}
+                className="w-full border border-slate-300 rounded px-2 py-1 text-sm bg-white">
+                <option value="">—</option>
+                <option value="1">1</option>
+                <option value="2">2</option>
+                <option value="3">3</option>
+                <option value="4">4</option>
+                <option value="5">5</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs text-slate-600">Shoe (US)</label>
+              <input type="number" min="0" max="20" step="0.5" value={shoeSizeUs}
+                onChange={(e) => setShoeSizeUs(e.target.value)}
+                className="w-full border border-slate-300 rounded px-2 py-1 text-sm" />
+            </div>
+            <div>
+              <label className="block text-xs text-slate-600">Bone age (yr)</label>
+              <input type="number" min="0" max="20" step="0.25" value={boneAgeYears}
+                onChange={(e) => setBoneAgeYears(e.target.value)}
+                className="w-full border border-slate-300 rounded px-2 py-1 text-sm" />
+            </div>
+          </div>
+        )}
         {error && <p className="text-xs text-red-600 mt-2">{error}</p>}
         <div className="flex gap-2 mt-3">
           <button type="button" onClick={save} disabled={busy}

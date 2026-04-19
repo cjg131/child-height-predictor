@@ -2,8 +2,11 @@
 // NewChildPage for creation and by ChildDetailPage for in-place edits.
 //
 // Height inputs are ft + in (blank ft counts as 0). Submission passes a
-// data object with name, birthDate, sex, motherHeightCm, fatherHeightCm
-// back to the parent, which decides whether to create or update.
+// data object with name, birthDate, sex, motherHeightCm, fatherHeightCm,
+// siblings back to the parent, which decides whether to create or update.
+//
+// Siblings captures ADULT brothers/sisters only (their height is settled).
+// This is an independent genetic signal beyond parents.
 
 import React, { useMemo, useState } from 'react';
 import { inToCm, cmToIn, formatFeetInchesPrecise } from '../lib/units.js';
@@ -25,7 +28,7 @@ function cmToFtIn(cm) {
   return { ft: String(ft), inches: String(rounded) };
 }
 
-function ParentHeight({ label, ft, inches, onChangeFt, onChangeIn }) {
+function HeightFtIn({ label, ft, inches, onChangeFt, onChangeIn, compact }) {
   const preview = useMemo(() => {
     const total = ftInToInches(ft, inches);
     if (total == null || total <= 0) return null;
@@ -35,7 +38,7 @@ function ParentHeight({ label, ft, inches, onChangeFt, onChangeIn }) {
 
   return (
     <div>
-      <label className="block text-xs text-slate-600">{label}</label>
+      {label && <label className="block text-xs text-slate-600">{label}</label>}
       <div className="grid grid-cols-2 gap-2">
         <input type="number" min="0" max="7" step="1" value={ft}
           onChange={(e) => onChangeFt(e.target.value)}
@@ -46,17 +49,46 @@ function ParentHeight({ label, ft, inches, onChangeFt, onChangeIn }) {
           placeholder="in"
           className="w-full border border-slate-300 rounded px-2 py-1" />
       </div>
-      {preview && <p className="text-[11px] text-slate-500 mt-0.5">= {preview}</p>}
+      {!compact && preview && <p className="text-[11px] text-slate-500 mt-0.5">= {preview}</p>}
+    </div>
+  );
+}
+
+function SiblingRow({ sibling, onChange, onRemove }) {
+  const ftIn = cmToFtIn(sibling.adultHeightCm);
+  return (
+    <div className="grid grid-cols-[auto_1fr_auto] gap-2 items-center">
+      <select value={sibling.sex}
+        onChange={(e) => onChange({ ...sibling, sex: e.target.value })}
+        className="border border-slate-300 rounded px-2 py-1 bg-white text-sm">
+        <option value="male">Brother</option>
+        <option value="female">Sister</option>
+      </select>
+      <HeightFtIn compact
+        ft={ftIn.ft} inches={ftIn.inches}
+        onChangeFt={(v) => {
+          const total = ftInToInches(v, ftIn.inches);
+          onChange({ ...sibling, adultHeightCm: total == null ? null : inToCm(total) });
+        }}
+        onChangeIn={(v) => {
+          const total = ftInToInches(ftIn.ft, v);
+          onChange({ ...sibling, adultHeightCm: total == null ? null : inToCm(total) });
+        }}
+      />
+      <button type="button" onClick={onRemove}
+        className="text-red-600 hover:text-red-700 text-sm underline">
+        remove
+      </button>
     </div>
   );
 }
 
 export default function ChildProfileForm({
-  initial = null,        // existing child doc, or null for create
+  initial = null,
   submitLabel = 'Save',
   cancelLabel = 'Cancel',
-  onSubmit,              // (data) => Promise<void>
-  onCancel,              // () => void
+  onSubmit,
+  onCancel,
 }) {
   const initMom = cmToFtIn(initial?.motherHeightCm ?? null);
   const initDad = cmToFtIn(initial?.fatherHeightCm ?? null);
@@ -68,6 +100,9 @@ export default function ChildProfileForm({
   const [motherIn, setMotherIn] = useState(initMom.inches);
   const [fatherFt, setFatherFt] = useState(initDad.ft);
   const [fatherIn, setFatherIn] = useState(initDad.inches);
+  const [siblings, setSiblings] = useState(
+    Array.isArray(initial?.siblings) ? initial.siblings : [],
+  );
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
 
@@ -75,6 +110,16 @@ export default function ChildProfileForm({
     const total = ftInToInches(ft, inches);
     if (total == null || total <= 0) return null;
     return inToCm(total);
+  };
+
+  const updateSibling = (i, next) => {
+    setSiblings((prev) => prev.map((s, idx) => (idx === i ? next : s)));
+  };
+  const addSibling = () => {
+    setSiblings((prev) => [...prev, { sex: 'male', adultHeightCm: null }]);
+  };
+  const removeSibling = (i) => {
+    setSiblings((prev) => prev.filter((_, idx) => idx !== i));
   };
 
   const submit = async (e) => {
@@ -88,6 +133,7 @@ export default function ChildProfileForm({
         sex,
         motherHeightCm: parseHeight(motherFt, motherIn),
         fatherHeightCm: parseHeight(fatherFt, fatherIn),
+        siblings: siblings.filter((s) => s.adultHeightCm != null),
       });
     } catch (err) {
       setError(err.message || 'Save failed');
@@ -100,25 +146,19 @@ export default function ChildProfileForm({
     <form onSubmit={submit} className="space-y-3">
       <div>
         <label className="block text-sm font-medium text-slate-700">Name</label>
-        <input
-          required value={name} onChange={(e) => setName(e.target.value)}
-          className="mt-1 w-full border border-slate-300 rounded px-3 py-2"
-        />
+        <input required value={name} onChange={(e) => setName(e.target.value)}
+          className="mt-1 w-full border border-slate-300 rounded px-3 py-2" />
       </div>
       <div>
         <label className="block text-sm font-medium text-slate-700">Birthday</label>
-        <input
-          type="date" required value={birthDate}
+        <input type="date" required value={birthDate}
           onChange={(e) => setBirthDate(e.target.value)}
-          className="mt-1 w-full border border-slate-300 rounded px-3 py-2"
-        />
+          className="mt-1 w-full border border-slate-300 rounded px-3 py-2" />
       </div>
       <div>
         <label className="block text-sm font-medium text-slate-700">Sex (for growth charts)</label>
-        <select
-          value={sex} onChange={(e) => setSex(e.target.value)}
-          className="mt-1 w-full border border-slate-300 rounded px-3 py-2 bg-white"
-        >
+        <select value={sex} onChange={(e) => setSex(e.target.value)}
+          className="mt-1 w-full border border-slate-300 rounded px-3 py-2 bg-white">
           <option value="male">Male</option>
           <option value="female">Female</option>
         </select>
@@ -128,17 +168,33 @@ export default function ChildProfileForm({
           Parent heights (optional, improves predictions)
         </legend>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-1">
-          <ParentHeight
-            label="Mother"
+          <HeightFtIn label="Mother"
             ft={motherFt} inches={motherIn}
-            onChangeFt={setMotherFt} onChangeIn={setMotherIn}
-          />
-          <ParentHeight
-            label="Father"
+            onChangeFt={setMotherFt} onChangeIn={setMotherIn} />
+          <HeightFtIn label="Father"
             ft={fatherFt} inches={fatherIn}
-            onChangeFt={setFatherFt} onChangeIn={setFatherIn}
-          />
+            onChangeFt={setFatherFt} onChangeIn={setFatherIn} />
         </div>
+      </fieldset>
+      <fieldset className="border border-slate-200 rounded p-3">
+        <legend className="text-sm font-medium text-slate-700 px-1">
+          Adult siblings (optional, tightens genetic target)
+        </legend>
+        <p className="text-[11px] text-slate-500 mb-2">
+          Only adult brothers/sisters whose height is settled. Leave blank for
+          siblings who are still growing.
+        </p>
+        <div className="space-y-2">
+          {siblings.map((s, i) => (
+            <SiblingRow key={i} sibling={s}
+              onChange={(next) => updateSibling(i, next)}
+              onRemove={() => removeSibling(i)} />
+          ))}
+        </div>
+        <button type="button" onClick={addSibling}
+          className="mt-2 text-sm text-brand-600 hover:text-brand-700 underline">
+          + Add adult sibling
+        </button>
       </fieldset>
       {error && <p className="text-sm text-red-600">{error}</p>}
       <div className="flex gap-2">
