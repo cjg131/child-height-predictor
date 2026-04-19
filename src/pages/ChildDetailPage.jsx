@@ -2,13 +2,15 @@ import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext.jsx';
 import {
-  getChild, listHeights, addHeight, updateHeight, deleteHeight, deleteChild,
+  getChild, listHeights, addHeight, updateHeight, deleteHeight,
+  updateChild, deleteChild,
 } from '../lib/children.js';
 import AddHeightForm from '../components/AddHeightForm.jsx';
 import GrowthChart from '../components/GrowthChart.jsx';
 import PredictionPanel from '../components/PredictionPanel.jsx';
 import HeightTable from '../components/HeightTable.jsx';
-import { ageInYears } from '../lib/units.js';
+import ChildProfileForm from '../components/ChildProfileForm.jsx';
+import { ageInYears, formatFeetInches as parentFtIn } from '../lib/units.js';
 
 export default function ChildDetailPage() {
   const { user } = useAuth();
@@ -18,6 +20,7 @@ export default function ChildDetailPage() {
   const [heights, setHeights] = useState([]);
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [editingProfile, setEditingProfile] = useState(false);
 
   const reload = async () => {
     setLoading(true);
@@ -53,6 +56,12 @@ export default function ChildDetailPage() {
     await reload();
   };
 
+  const onSaveProfile = async (data) => {
+    await updateChild(user.uid, childId, data);
+    setEditingProfile(false);
+    await reload();
+  };
+
   const onDeleteChild = async () => {
     if (!confirm(`Delete ${child.name} and all their measurements? This can't be undone.`)) return;
     await deleteChild(user.uid, childId);
@@ -67,19 +76,43 @@ export default function ChildDetailPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-start justify-between">
+      <div className="flex items-start justify-between gap-3">
         <div>
           <Link to="/" className="text-sm text-brand-600 underline">&larr; All kids</Link>
           <h2 className="text-2xl font-semibold mt-1">{child.name}</h2>
           <p className="text-sm text-slate-600">
             {child.sex === 'male' ? 'Boy' : 'Girl'} · born {child.birthDate} · {ageY.toFixed(1)} years old
           </p>
+          {(child.motherHeightCm != null || child.fatherHeightCm != null) && (
+            <p className="text-xs text-slate-500 mt-1">
+              Parents:
+              {' '}mom {child.motherHeightCm != null ? parentFtIn(child.motherHeightCm) : '—'}
+              {' · '}dad {child.fatherHeightCm != null ? parentFtIn(child.fatherHeightCm) : '—'}
+            </p>
+          )}
         </div>
-        <button onClick={onDeleteChild}
-          className="text-sm text-red-600 hover:text-red-700 underline">
-          Delete child
-        </button>
+        <div className="flex flex-col gap-1 items-end">
+          <button onClick={() => setEditingProfile((v) => !v)}
+            className="text-sm text-brand-600 hover:text-brand-700 underline">
+            {editingProfile ? 'Close' : 'Edit profile'}
+          </button>
+          <button onClick={onDeleteChild}
+            className="text-sm text-red-600 hover:text-red-700 underline">
+            Delete child
+          </button>
+        </div>
       </div>
+      {editingProfile && (
+        <section className="bg-white rounded-lg shadow p-4">
+          <h3 className="text-lg font-semibold mb-2">Edit profile</h3>
+          <ChildProfileForm
+            initial={child}
+            submitLabel="Save changes"
+            onSubmit={onSaveProfile}
+            onCancel={() => setEditingProfile(false)}
+          />
+        </section>
+      )}
 
       <section className="bg-white rounded-lg shadow p-4">
         <h3 className="text-lg font-semibold mb-2">Growth chart</h3>
