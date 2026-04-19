@@ -1,8 +1,28 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext.jsx';
 import { createChild } from '../lib/children.js';
-import { inToCm } from '../lib/units.js';
+import { inToCm, formatFeetInchesPrecise } from '../lib/units.js';
+
+function ParentHeight({ label, value, onChange }) {
+  const preview = useMemo(() => {
+    const n = Number(value);
+    if (!Number.isFinite(n) || n <= 0) return null;
+    const cm = inToCm(n);
+    return `${formatFeetInchesPrecise(cm)} · ${cm.toFixed(1)} cm`;
+  }, [value]);
+
+  return (
+    <div>
+      <label className="block text-xs text-slate-600">{label} (inches)</label>
+      <input type="number" min="36" max="96" step="0.25" value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder="e.g. 70"
+        className="w-full border border-slate-300 rounded px-2 py-1" />
+      {preview && <p className="text-[11px] text-slate-500 mt-0.5">= {preview}</p>}
+    </div>
+  );
+}
 
 export default function NewChildPage() {
   const { user } = useAuth();
@@ -10,17 +30,15 @@ export default function NewChildPage() {
   const [name, setName] = useState('');
   const [birthDate, setBirthDate] = useState('');
   const [sex, setSex] = useState('male');
-  const [motherFeet, setMotherFeet] = useState('');
   const [motherIn, setMotherIn] = useState('');
-  const [fatherFeet, setFatherFeet] = useState('');
   const [fatherIn, setFatherIn] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
 
-  const parseHeight = (feet, inches) => {
-    const f = Number(feet), i = Number(inches);
-    if (!Number.isFinite(f) || !Number.isFinite(i) || f + i === 0) return null;
-    return inToCm(f * 12 + i);
+  const parseHeight = (inches) => {
+    const n = Number(inches);
+    if (!Number.isFinite(n) || n <= 0) return null;
+    return inToCm(n);
   };
 
   const onSubmit = async (e) => {
@@ -32,8 +50,8 @@ export default function NewChildPage() {
         name,
         birthDate,
         sex,
-        motherHeightCm: parseHeight(motherFeet, motherIn),
-        fatherHeightCm: parseHeight(fatherFeet, fatherIn),
+        motherHeightCm: parseHeight(motherIn),
+        fatherHeightCm: parseHeight(fatherIn),
       });
       navigate(`/children/${id}`);
     } catch (err) {
@@ -77,31 +95,12 @@ export default function NewChildPage() {
             Parent heights (optional, improves predictions)
           </legend>
           <div className="grid grid-cols-2 gap-3 mt-1">
-            <div>
-              <label className="block text-xs text-slate-600">Mother: ft</label>
-              <input type="number" min="3" max="7" value={motherFeet}
-                onChange={(e) => setMotherFeet(e.target.value)}
-                className="w-full border border-slate-300 rounded px-2 py-1" />
-            </div>
-            <div>
-              <label className="block text-xs text-slate-600">Mother: in</label>
-              <input type="number" min="0" max="11" value={motherIn}
-                onChange={(e) => setMotherIn(e.target.value)}
-                className="w-full border border-slate-300 rounded px-2 py-1" />
-            </div>
-            <div>
-              <label className="block text-xs text-slate-600">Father: ft</label>
-              <input type="number" min="3" max="8" value={fatherFeet}
-                onChange={(e) => setFatherFeet(e.target.value)}
-                className="w-full border border-slate-300 rounded px-2 py-1" />
-            </div>
-            <div>
-              <label className="block text-xs text-slate-600">Father: in</label>
-              <input type="number" min="0" max="11" value={fatherIn}
-                onChange={(e) => setFatherIn(e.target.value)}
-                className="w-full border border-slate-300 rounded px-2 py-1" />
-            </div>
+            <ParentHeight label="Mother" value={motherIn} onChange={setMotherIn} />
+            <ParentHeight label="Father" value={fatherIn} onChange={setFatherIn} />
           </div>
+          <p className="text-[11px] text-slate-500 mt-2">
+            Tip: 5'8" is 68 inches, 6'0" is 72 inches.
+          </p>
         </fieldset>
         {error && <p className="text-sm text-red-600">{error}</p>}
         <div className="flex gap-2">
