@@ -57,3 +57,10 @@ export async function addHeight(uid, childId, data) {
 export async function deleteHeight(uid, childId, heightId) {
   await deleteDoc(doc(heightsCol(uid, childId), heightId));
 }
+
+export async function updateHeight(uid, childId, heightId, data) {
+  await updateDoc(doc(heightsCol(uid, childId), heightId), {
+    ...data,
+    updatedAt: serverTimestamp(),
+  });
+}

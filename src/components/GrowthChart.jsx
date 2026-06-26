@@ -27,7 +27,7 @@ export default function GrowthChart({ child, heights }) {
   );
 
   const data = useMemo(() => {
-    const xy = (key) => curves.map((r) => ({ x: r.ageMonths / 12, y: r[key] }));
+    const xy = (key) => curves.map((r) => ({ x: r.ageMonths / 12, y: cmToIn(r[key]) }));
     const band = (key, fill) => ({
       label: `${key.replace('p', '')}th pct`,
       data: xy(key),
@@ -44,7 +44,7 @@ export default function GrowthChart({ child, heights }) {
       .sort((a, b) => a.measurementDate.localeCompare(b.measurementDate))
       .map((h) => ({
         x: ageInMonths(child.birthDate, h.measurementDate) / 12,
-        y: h.heightCm,
+        y: cmToIn(h.heightCm),
       }));
 
     return {
@@ -98,8 +98,10 @@ export default function GrowthChart({ child, heights }) {
             ? `Age ${items[0].parsed.x.toFixed(1)} years`
             : '',
           label: (item) => {
-            const cm = item.parsed.y;
-            return `${item.dataset.label}: ${cm.toFixed(1)} cm (${cmToIn(cm).toFixed(1)} in)`;
+            const inches = item.parsed.y;
+            const ft = Math.floor(inches / 12);
+            const rem = inches - ft * 12;
+            return `${item.dataset.label}: ${ft}'${rem.toFixed(1)}" (${inches.toFixed(1)} in)`;
           },
         },
       },
@@ -114,9 +116,9 @@ export default function GrowthChart({ child, heights }) {
       },
       y: {
         type: 'linear',
-        title: { display: true, text: 'Height (cm)' },
-        min: 75,
-        max: 200,
+        title: { display: true, text: 'Height (inches)' },
+        min: 30,
+        max: 80,
       },
     },
   }), [child.name]);
