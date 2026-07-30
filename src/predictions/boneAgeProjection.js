@@ -17,6 +17,9 @@
 
 import { BAYLEY_PINNEAU } from '../growth-data/bayley-pinneau.js';
 import { ageInMonths } from '../lib/units.js';
+import {
+  boneAgeYears as boneAgeYearsInput, childHeightCm, isSex,
+} from './constants.js';
 
 const BONE_AGE_DIFF_THRESHOLD = 1.0;  // years
 
@@ -60,8 +63,12 @@ function categoryFromDiff(diffYears) {
  * @returns {Object|null}
  */
 export function boneAgeProjection({ sex, birthDate, measurementDate, heightCm, boneAgeYears }) {
-  if (boneAgeYears == null || !Number.isFinite(boneAgeYears)) return null;
-  if (heightCm == null || !Number.isFinite(heightCm)) return null;
+  const ba = boneAgeYearsInput(boneAgeYears);
+  const h = childHeightCm(heightCm);
+  if (ba == null || h == null || !isSex(sex)) return null;
+  // Shadow the params with coerced values so nothing below can use the raw input.
+  boneAgeYears = ba;
+  heightCm = h;
 
   const chronoAgeYears = ageInMonths(birthDate, measurementDate) / 12;
   const diffYears = boneAgeYears - chronoAgeYears;

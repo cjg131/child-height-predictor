@@ -232,7 +232,7 @@ export default function HeightTable({ heights, child, onUpdate, onDelete }) {
                 <td className="py-2">{h.measurementDate}</td>
                 <td>{age.toFixed(1)}</td>
                 <td>{formatHeight(h.heightCm)}</td>
-                <td>{zToPercentile(z.z).toFixed(0)}</td>
+                <td>{z ? zToPercentile(z.z).toFixed(0) : '\u2014'}</td>
                 <td>{h.weightKg ? `${kgToLb(h.weightKg).toFixed(1)} lb` : '-'}</td>
                 <td className="text-slate-600">{h.note || ''}</td>
                 <td className="whitespace-nowrap">

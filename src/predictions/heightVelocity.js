@@ -31,6 +31,12 @@
 // once the PHV has been crossed.
 
 import { ageInYears } from '../lib/units.js';
+import { timeOf, childHeightCm } from './constants.js';
+
+/** Days between two epoch-ms timestamps. */
+function daysBetweenMs(t0, t1) {
+  return (t1 - t0) / (1000 * 60 * 60 * 24);
+}
 
 /**
  * Compute height velocity history and PHV state.
@@ -49,10 +55,20 @@ import { ageInYears } from '../lib/units.js';
  * }
  */
 export function heightVelocity({ sex, birthDate, heights }) {
+  // Normalize dates to epoch ms before sorting. localeCompare() only works on
+  // strings and throws on the Date objects that ageInYears / cdcStatureZ /
+  // boneAgeProjection all happily accept -- so a caller passing Dates would
+  // crash here while every other predictor worked.
   const sorted = (heights || [])
-    .filter((h) => h && h.measurementDate && h.heightCm != null)
-    .slice()
-    .sort((a, b) => a.measurementDate.localeCompare(b.measurementDate));
+    .map((h) => {
+      if (!h || h.measurementDate == null) return null;
+      const t = timeOf(h.measurementDate);
+      const cm = childHeightCm(h.heightCm);
+      if (t == null || cm == null) return null;
+      return { ...h, _t: t, heightCm: cm };
+    })
+    .filter(Boolean)
+    .sort((a, b) => a._t - b._t);
 
   if (sorted.length < 2) {
     return {
@@ -65,21 +81,40 @@ export function heightVelocity({ sex, birthDate, heights }) {
     };
   }
 
+  // Pair each measurement with the most recent EARLIER one at least 90 days
+  // back, rather than only with its immediate predecessor. Measuring monthly is
+  // good practice, but the old adjacent-pairs-only loop discarded every such
+  // interval as "too short" and reported `insufficient` forever -- silently
+  // disabling PHV detection for the most diligently tracked children.
+  const MIN_INTERVAL_DAYS = 90;
   const velocities = [];
+  let anchor = 0;
   for (let i = 1; i < sorted.length; i++) {
-    const a = sorted[i - 1];
     const b = sorted[i];
-    const days = daysBetween(a.measurementDate, b.measurementDate);
-    if (days < 90) continue; // skip short intervals
+    // Advance the anchor as far forward as we can while keeping the gap valid,
+    // so intervals stay as short as possible without dropping below the floor.
+    while (
+      anchor + 1 < i
+      && daysBetweenMs(sorted[anchor + 1]._t, b._t) >= MIN_INTERVAL_DAYS
+    ) {
+      anchor++;
+    }
+    const a = sorted[anchor];
+    const days = daysBetweenMs(a._t, b._t);
+    if (days < MIN_INTERVAL_DAYS) continue;
+
     const years = days / 365.25;
     const cmPerYear = (b.heightCm - a.heightCm) / years;
-    const midAge = (ageInYears(birthDate, a.measurementDate) + ageInYears(birthDate, b.measurementDate)) / 2;
+    const midAge = (
+      ageInYears(birthDate, a.measurementDate) + ageInYears(birthDate, b.measurementDate)
+    ) / 2;
     velocities.push({
       startDate: a.measurementDate,
       endDate: b.measurementDate,
       cmPerYear,
       midAgeYears: midAge,
     });
+    anchor = i; // next interval starts from here
   }
 
   if (velocities.length === 0) {
@@ -122,7 +157,7 @@ export function heightVelocity({ sex, birthDate, heights }) {
   const lastVelocityCmPerYear = last.cmPerYear;
   const ageNow = ageInYears(birthDate, sorted[sorted.length - 1].measurementDate);
 
-  let state = 'pre-phv';
+  let state;
   let monthsSincePhv = null;
 
   if (peak && peak.cmPerYear >= PHV_THRESHOLD) {
@@ -153,10 +188,4 @@ export function heightVelocity({ sex, birthDate, heights }) {
     monthsSincePhv,
     lastVelocityCmPerYear,
   };
-}
-
-function daysBetween(isoA, isoB) {
-  const a = new Date(isoA);
-  const b = new Date(isoB);
-  return (b - a) / (1000 * 60 * 60 * 24);
 }

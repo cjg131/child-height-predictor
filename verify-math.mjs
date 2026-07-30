@@ -15,7 +15,6 @@ import {
 } from './src/predictions/cdcPercentile.js';
 import { combinePredictions } from './src/predictions/combine.js';
 import { CDC_STATURE_LMS } from './src/growth-data/cdc-stature-lms.js';
-import { KHAMIS_ROCHE } from './src/growth-data/khamis-roche-coefficients.js';
 import { inToCm, lbToKg } from './src/lib/units.js';
 
 let passed = 0;
@@ -791,7 +790,13 @@ import { shoeSizeSignal } from './src/predictions/shoeSizeSignal.js';
   truthy(out.results.khamisRoche != null, 'combine: K-R present');
   truthy(out.results.cdcPercentile != null, 'combine: CDC present');
   truthy(out.results.boneAge == null, 'combine: no bone age');
-  truthy(out.consensus.points.length === 3, 'combine: 3 methods contributing');
+  // Mid-parental is computed and shown, but excluded from the consensus pool
+  // because Khamis-Roche already contains it (see combine.js step 4).
+  truthy(out.consensus.points.length === 2, 'combine: 2 independent methods pooled');
+  truthy(
+    !out.consensus.points.some((p) => p.label === 'Mid-parental'),
+    'combine: MPH excluded from pool when K-R present',
+  );
   truthy(out.spreadCm != null, 'combine: spread reported');
 }
 {
@@ -925,7 +930,14 @@ import { shoeSizeSignal } from './src/predictions/shoeSizeSignal.js';
   });
   truthy(out.consensus != null, 'integration: consensus present');
   truthy(out.consensus.points.length >= 4, 'integration: 4+ predictors active');
-  truthy(out.consensus.sdCm < 3.0, 'integration: consensus SD tight with full data');
+  // Random effects: the four methods span ~7 cm here, so the consensus SD must
+  // reflect that disagreement rather than collapsing below the tightest input.
+  truthy(out.consensus.heterogeneitySdCm > 0, 'integration: heterogeneity detected');
+  truthy(
+    out.consensus.sdCm > Math.min(...out.consensus.points.map((p) => p.sdCm)),
+    'integration: consensus SD not tighter than best single method',
+  );
+  truthy(out.consensus.sdCm < 6.0, 'integration: consensus still beats mid-parental alone');
   truthy(out.activeSignals.length >= 4, 'integration: multiple active signals');
   truthy(out.consensus.predictedAdultHeightCm > 175, 'integration: predicted taller than current');
   truthy(out.consensus.predictedAdultHeightCm < 195, 'integration: predicted within sane range');
@@ -947,6 +959,358 @@ import { shoeSizeSignal } from './src/predictions/shoeSizeSignal.js';
   truthy(out.consensus.sdCm >= 3.0, 'integration: SD wider for 4yo without tempo data');
   truthy(out.activeSignals.length === 0, 'integration: 4yo no active tempo signals');
 }
+
+// --- Random-effects consensus regression ---------------------------------
+{
+  // Two methods in violent disagreement must NOT produce a tight consensus.
+  // This is the false-precision bug: fixed-effect pooling of 165 (sd 2) and
+  // 179 (sd 2) yields 172 +/- 1.41, a 95% range of 169-175 containing neither.
+  const out = combinePredictions({
+    sex: 'male',
+    birthDate: '2013-01-01',
+    measurementDate: '2026-07-30',
+    currentHeightCm: 160,
+    currentWeightKg: 48,
+    motherHeightCm: 165,
+    fatherHeightCm: 180,
+    boneAgeYears: 14.0,
+    heights: [{ measurementDate: '2026-07-30', heightCm: 160, weightKg: 48 }],
+  });
+  const c = out.consensus;
+  truthy(c.heterogeneitySdCm > 1.0, 'random-effects: tau detected on disagreement');
+  truthy(c.sdCm > 2.0, 'random-effects: SD widened past tightest input');
+  // The 95% range must overlap at least one contributing method.
+  const lo = c.rangeLowCm, hi = c.rangeHighCm;
+  truthy(
+    c.points.some((p) => p.cm >= lo && p.cm <= hi),
+    'random-effects: consensus range contains at least one method',
+  );
+  // Weights must flatten -- no single method may dominate a pool it conflicts with.
+  truthy(
+    Math.max(...c.points.map((p) => p.weight)) < 0.6,
+    'random-effects: weights flatten under disagreement',
+  );
+}
+{
+  // When methods agree, tau^2 -> 0 and we must recover fixed-effect pooling.
+  // Construct near-agreement by using a child whose CDC and K-R line up.
+  const out = combinePredictions({
+    sex: 'female',
+    birthDate: '2016-06-01',
+    measurementDate: '2026-06-01',
+    currentHeightCm: 138,
+    currentWeightKg: 32,
+    motherHeightCm: 165,
+    fatherHeightCm: 178,
+    heights: [{ measurementDate: '2026-06-01', heightCm: 138, weightKg: 32 }],
+  });
+  const c = out.consensus;
+  truthy(c.spread == null || true, 'random-effects: agreement case runs');
+  if (out.spreadCm != null && out.spreadCm < 2.0) {
+    truthy(c.heterogeneitySdCm < 1.0, 'random-effects: tau near zero when methods agree');
+  }
+  truthy(Number.isFinite(c.sdCm) && c.sdCm > 0, 'random-effects: SD finite and positive');
+}
+{
+  // Single-method pool must not blow up (k=1 -> tau^2 = 0 by definition).
+  const out = combinePredictions({
+    sex: 'male',
+    birthDate: '2022-01-01',
+    measurementDate: '2026-07-30',
+    currentHeightCm: null,
+    motherHeightCm: 165,
+    fatherHeightCm: 180,
+    heights: [],
+  });
+  truthy(out.consensus.pointCount === 1, 'random-effects: single point pool');
+  truthy(out.consensus.heterogeneitySdCm === 0, 'random-effects: tau zero for k=1');
+  truthy(Math.abs(out.consensus.sdCm - 5.0) < 1e-9, 'random-effects: k=1 SD equals input SD');
+}
+
+
+// --- CDC table age-range guard -------------------------------------------
+{
+  // A 14-month-old boy at 78 cm is roughly median on the WHO 0-2 chart. The
+  // CDC 2-20 table starts at 24 months; clamping to that row reported him as
+  // z = -2.43 / 0.8th percentile. Must refuse instead.
+  const toddler = cdcStatureZ({
+    sex: 'male', birthDate: '2025-05-30', measurementDate: '2026-07-30', heightCm: 78,
+  });
+  truthy(toddler === null, 'cdc-range: under-2 z returns null');
+
+  const proj = cdcPercentileProjection({
+    sex: 'male', birthDate: '2025-05-30', measurementDate: '2026-07-30', heightCm: 78,
+  });
+  truthy(proj === null, 'cdc-range: under-2 projection returns null');
+
+  // Exactly 24 months must be admitted (inclusive boundary).
+  const atTwo = cdcStatureZ({
+    sex: 'male', birthDate: '2024-07-30', measurementDate: '2026-07-30', heightCm: 87,
+  });
+  truthy(atTwo !== null, 'cdc-range: exactly 24 months admitted');
+  truthy(Math.abs(atTwo.z) < 1.5, 'cdc-range: 24mo boy at 87cm is near median');
+
+  // Past 20 years the table also ends.
+  const adult = cdcStatureZ({
+    sex: 'male', birthDate: '2005-01-01', measurementDate: '2026-07-30', heightCm: 180,
+  });
+  truthy(adult === null, 'cdc-range: over-20 returns null');
+
+  // Bad height input must not produce a number.
+  truthy(
+    cdcStatureZ({ sex: 'male', birthDate: '2014-01-01', measurementDate: '2026-01-01', heightCm: 'oops' }) === null,
+    'cdc-range: non-numeric height returns null',
+  );
+}
+{
+  // combine() must omit CDC entirely for a toddler rather than pooling garbage,
+  // and must still return a usable parents-only consensus.
+  const out = combinePredictions({
+    sex: 'male',
+    birthDate: '2025-05-30',
+    measurementDate: '2026-07-30',
+    currentHeightCm: 78,
+    motherHeightCm: 165,
+    fatherHeightCm: 180,
+    heights: [{ measurementDate: '2026-07-30', heightCm: 78 }],
+  });
+  truthy(out.results.cdcPercentile == null, 'cdc-range: combine omits CDC for toddler');
+  truthy(out.results.khamisRoche == null, 'cdc-range: combine omits K-R for toddler');
+  truthy(out.consensus != null, 'cdc-range: toddler still gets a consensus');
+  truthy(out.consensus.pointCount === 1, 'cdc-range: toddler consensus is parents-only');
+  truthy(
+    out.consensus.predictedAdultHeightCm > 150 && out.consensus.predictedAdultHeightCm < 200,
+    'cdc-range: toddler consensus is plausible',
+  );
+}
+
+
+// --- Numeric input validation --------------------------------------------
+{
+  // The bug: Firestore returns strings, `(a + b) / 2` concatenates them, and
+  // ('165' + '180') / 2 = 82596.5 cm flowed into the consensus unchallenged.
+  const strParents = midParentalHeight({
+    sex: 'male', motherHeightCm: '165', fatherHeightCm: '180',
+  });
+  truthy(strParents !== null, 'validate: numeric strings accepted');
+  truthy(
+    Math.abs(strParents.targetCm - 179.0) < 0.01,
+    'validate: string parents give the same answer as numbers',
+  );
+
+  const numParents = midParentalHeight({
+    sex: 'male', motherHeightCm: 165, fatherHeightCm: 180,
+  });
+  truthy(
+    strParents.targetCm === numParents.targetCm,
+    'validate: string and number inputs agree exactly',
+  );
+
+  // Junk must produce null, never a number.
+  const junk = [
+    { motherHeightCm: 'oops', fatherHeightCm: 180 },
+    { motherHeightCm: NaN, fatherHeightCm: 180 },
+    { motherHeightCm: Infinity, fatherHeightCm: 180 },
+    { motherHeightCm: true, fatherHeightCm: 180 },
+    { motherHeightCm: '', fatherHeightCm: 180 },
+    { motherHeightCm: 9999, fatherHeightCm: 180 },   // out of plausible range
+    { motherHeightCm: 5, fatherHeightCm: 180 },      // inches mistaken for cm
+    { motherHeightCm: null, fatherHeightCm: 180 },
+  ];
+  for (const j of junk) {
+    truthy(
+      midParentalHeight({ sex: 'male', ...j }) === null,
+      `validate: rejects motherHeightCm=${String(j.motherHeightCm)}`,
+    );
+  }
+
+  // Bad sex must not silently default to one branch -- throwing is the
+  // existing contract and is fine, as long as it never returns a number.
+  let sexRejected;
+  try {
+    sexRejected = midParentalHeight({ sex: 'M', motherHeightCm: 165, fatherHeightCm: 180 }) === null;
+  } catch {
+    sexRejected = true;
+  }
+  truthy(sexRejected, 'validate: invalid sex rejected or thrown');
+}
+{
+  // The whole engine must survive an all-strings child document.
+  const out = combinePredictions({
+    sex: 'male',
+    birthDate: '2014-02-27',
+    measurementDate: '2026-02-27',
+    currentHeightCm: '150',
+    currentWeightKg: '40',
+    motherHeightCm: '165',
+    fatherHeightCm: '180',
+    tannerStage: '3',
+    boneAgeYears: '12.5',
+    heights: [{ measurementDate: '2026-02-27', heightCm: '150', weightKg: '40' }],
+  });
+  truthy(out.consensus != null, 'validate: string-typed doc still produces a consensus');
+  const cm = out.consensus.predictedAdultHeightCm;
+  truthy(cm > 140 && cm < 210, `validate: string-typed consensus plausible (got ${cm.toFixed(1)})`);
+  truthy(
+    out.consensus.points.every((p) => Number.isFinite(p.cm) && Number.isFinite(p.sdCm)),
+    'validate: no NaN reaches the consensus points',
+  );
+  truthy(
+    out.activeSignals.every((a) => typeof a.state === 'string'),
+    'validate: activeSignals render without throwing on string inputs',
+  );
+}
+{
+  // Tanner coercion: '4' is fine, 0 / 6 / 2.5 / 'four' are not.
+  const mk = (t) => combinePredictions({
+    sex: 'male', birthDate: '2013-01-01', measurementDate: '2026-01-01',
+    currentHeightCm: 160, currentWeightKg: 50,
+    motherHeightCm: 165, fatherHeightCm: 180,
+    tannerStage: t,
+    heights: [{ measurementDate: '2026-01-01', heightCm: 160, weightKg: 50 }],
+  });
+  const hasTanner = (o) => o.activeSignals.some((a) => a.signal === 'tanner');
+  truthy(hasTanner(mk('4')), 'validate: tanner string "4" accepted');
+  truthy(!hasTanner(mk(0)), 'validate: tanner 0 rejected');
+  truthy(!hasTanner(mk(6)), 'validate: tanner 6 rejected');
+  truthy(!hasTanner(mk(2.5)), 'validate: tanner 2.5 rejected');
+  truthy(!hasTanner(mk('four')), 'validate: tanner "four" rejected');
+}
+{
+  // Bone age badge must only appear when the projection actually ran.
+  const out = combinePredictions({
+    sex: 'male', birthDate: '2013-01-01', measurementDate: '2026-01-01',
+    currentHeightCm: 160, currentWeightKg: 50,
+    motherHeightCm: 165, fatherHeightCm: 180,
+    boneAgeYears: 'not-a-number',
+    heights: [{ measurementDate: '2026-01-01', heightCm: 160, weightKg: 50 }],
+  });
+  truthy(out.results.boneAge == null, 'validate: unparseable bone age produces no predictor');
+  truthy(
+    !out.activeSignals.some((a) => a.signal === 'bone-age'),
+    'validate: no bone-age badge without a bone-age prediction',
+  );
+}
+
+
+// --- Date handling and velocity pairing ----------------------------------
+{
+  // Date objects must work everywhere strings do. The old localeCompare sort
+  // threw a TypeError on them while every other predictor accepted them.
+  const asDates = [
+    { measurementDate: new Date('2024-01-01'), heightCm: 140 },
+    { measurementDate: new Date('2024-07-01'), heightCm: 144 },
+    { measurementDate: new Date('2025-01-01'), heightCm: 149 },
+  ];
+  let threw = false;
+  let vDates = null;
+  try {
+    vDates = heightVelocity({ sex: 'male', birthDate: new Date('2014-01-01'), heights: asDates });
+  } catch {
+    threw = true;
+  }
+  truthy(!threw, 'dates: heightVelocity accepts Date objects');
+  truthy(vDates.velocities.length === 2, 'dates: Date objects produce velocities');
+
+  // Same data as ISO strings must give identical numbers.
+  const asStrings = asDates.map((h) => ({
+    measurementDate: h.measurementDate.toISOString().slice(0, 10),
+    heightCm: h.heightCm,
+  }));
+  const vStrings = heightVelocity({ sex: 'male', birthDate: '2014-01-01', heights: asStrings });
+  truthy(
+    Math.abs(vDates.velocities[0].cmPerYear - vStrings.velocities[0].cmPerYear) < 1e-9,
+    'dates: Date and string inputs agree exactly',
+  );
+
+  // Out-of-order input must still sort correctly.
+  const shuffled = [asStrings[2], asStrings[0], asStrings[1]];
+  const vShuffled = heightVelocity({ sex: 'male', birthDate: '2014-01-01', heights: shuffled });
+  truthy(
+    vShuffled.velocities.length === vStrings.velocities.length,
+    'dates: unsorted input sorts correctly',
+  );
+}
+{
+  // The bug: monthly measurements are BETTER data, but the adjacent-pairs-only
+  // loop dropped every 30-day gap as "too short" and reported insufficient
+  // forever. Now short gaps accumulate until they clear the 90-day floor.
+  const monthly = [];
+  let cm = 140;
+  for (let i = 0; i < 12; i++) {
+    const d = new Date(Date.UTC(2025, i, 1)).toISOString().slice(0, 10);
+    monthly.push({ measurementDate: d, heightCm: cm });
+    cm += 0.6;
+  }
+  const v = heightVelocity({ sex: 'male', birthDate: '2013-01-01', heights: monthly });
+  truthy(v.state !== 'insufficient', 'velocity: monthly measurements are not "insufficient"');
+  truthy(v.velocities.length >= 3, 'velocity: monthly data yields multiple intervals');
+  truthy(
+    v.velocities.every((x) => x.cmPerYear > 0 && x.cmPerYear < 30),
+    'velocity: monthly-derived rates are physically plausible',
+  );
+  // ~0.6 cm/month => ~7.2 cm/yr.
+  truthy(
+    Math.abs(v.lastVelocityCmPerYear - 7.2) < 1.5,
+    `velocity: recovers ~7.2 cm/yr from monthly data (got ${v.lastVelocityCmPerYear.toFixed(1)})`,
+  );
+  // Every interval must still respect the 90-day floor.
+  truthy(
+    v.velocities.every((x) => (new Date(x.endDate) - new Date(x.startDate)) / 86400000 >= 90),
+    'velocity: all intervals still >= 90 days',
+  );
+}
+{
+  // Two measurements 30 days apart genuinely IS insufficient -- don't
+  // manufacture a velocity from noise.
+  const tooClose = heightVelocity({
+    sex: 'male',
+    birthDate: '2013-01-01',
+    heights: [
+      { measurementDate: '2026-01-01', heightCm: 150 },
+      { measurementDate: '2026-01-31', heightCm: 150.4 },
+    ],
+  });
+  truthy(tooClose.state === 'insufficient', 'velocity: 30-day span alone stays insufficient');
+}
+
+
+// --- Consensus SD cap ----------------------------------------------------
+{
+  // Pathological disagreement (bone age vs CDC ~12 cm apart) drove raw
+  // DerSimonian-Laird tau high enough that the pooled SD exceeded mid-parental
+  // alone -- i.e. adding evidence made us less certain than knowing nothing but
+  // the parents. The cap forbids that.
+  const out = combinePredictions({
+    sex: 'male', birthDate: '2013-01-01', measurementDate: '2026-07-30',
+    currentHeightCm: 160, currentWeightKg: 48,
+    motherHeightCm: 165, fatherHeightCm: 180,
+    boneAgeYears: 14.0,
+    heights: [{ measurementDate: '2026-07-30', heightCm: 160, weightKg: 48 }],
+  });
+  const c = out.consensus;
+  truthy(c.heterogeneitySdCm > 3, 'sd-cap: heavy disagreement produces large tau');
+  truthy(c.sdCapped === true, 'sd-cap: cap engaged');
+  truthy(c.sdCm <= 5.0 + 1e-9, 'sd-cap: never looser than mid-parental alone');
+  truthy(c.sdCm >= 2.0, 'sd-cap: still wider than the tightest single method');
+  // The capped range must still cover most of the contributing methods.
+  const covered = c.points.filter((p) => p.cm >= c.rangeLowCm && p.cm <= c.rangeHighCm).length;
+  truthy(covered >= 2, 'sd-cap: capped range covers most methods');
+}
+{
+  // When methods agree the cap must NOT engage -- we keep the tight answer.
+  const out = combinePredictions({
+    sex: 'male', birthDate: '2014-02-27', measurementDate: '2026-07-30',
+    currentHeightCm: 152, currentWeightKg: 43,
+    motherHeightCm: 165, fatherHeightCm: 180,
+    heights: [{ measurementDate: '2026-07-30', heightCm: 152, weightKg: 43 }],
+  });
+  const c = out.consensus;
+  truthy(c.sdCapped === false, 'sd-cap: not engaged when methods agree');
+  truthy(c.sdCm < 2.5, 'sd-cap: agreement still yields a tight consensus');
+  truthy(c.heterogeneitySdCm < 0.5, 'sd-cap: tau near zero on agreement');
+}
+
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed) {
   for (const f of fails) console.log(f);

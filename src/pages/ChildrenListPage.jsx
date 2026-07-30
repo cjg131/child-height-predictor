@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext.jsx';
 import { listChildren } from '../lib/children.js';
-import { ageInYears, formatHeight } from '../lib/units.js';
+import { ageInYears } from '../lib/units.js';
 
 export default function ChildrenListPage() {
   const { user } = useAuth();
@@ -29,7 +29,7 @@ export default function ChildrenListPage() {
         </Link>
       </div>
       {children.length === 0 ? (
-        <p className="text-slate-600">No kids yet. Click "Add child" to get started.</p>
+        <p className="text-slate-600">No kids yet. Click &ldquo;Add child&rdquo; to get started.</p>
       ) : (
         <ul className="space-y-2">
           {children.map((c) => (

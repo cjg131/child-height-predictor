@@ -38,7 +38,11 @@ export default function ChildDetailPage() {
     }
   };
 
-  useEffect(() => { if (user && childId) reload(); /* eslint-disable-next-line */ }, [user, childId]);
+  // `reload` is intentionally omitted: it is redefined on every render, so
+  // including it would refetch in a loop. Refetching on user/childId is the
+  // actual intent.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { if (user && childId) reload(); }, [user, childId]);
 
   const onAddHeight = async (data) => {
     await addHeight(user.uid, childId, data);

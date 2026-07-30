@@ -1,11 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { bmiTrajectory } from '../bmiTrajectory.js';
 
-function daysBefore(ref, days) {
-  const d = new Date(ref);
-  d.setDate(d.getDate() - days);
-  return d.toISOString().slice(0, 10);
-}
 
 describe('bmiTrajectory', () => {
   it('returns insufficient when no measurements', () => {

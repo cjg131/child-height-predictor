@@ -41,7 +41,7 @@ export default function GrowthChart({ child, heights }) {
 
     const childData = heights
       .slice()
-      .sort((a, b) => a.measurementDate.localeCompare(b.measurementDate))
+      .sort((a, b) => new Date(a.measurementDate) - new Date(b.measurementDate))
       .map((h) => ({
         x: ageInMonths(child.birthDate, h.measurementDate) / 12,
         y: cmToIn(h.heightCm),
@@ -126,7 +126,7 @@ export default function GrowthChart({ child, heights }) {
   if (!heights.length) {
     return (
       <div className="text-slate-500 text-sm py-8 text-center">
-        Add a measurement below to see {child.name}'s growth plotted on the CDC chart.
+        Add a measurement below to see {child.name}&rsquo;s growth plotted on the CDC chart.
       </div>
     );
   }

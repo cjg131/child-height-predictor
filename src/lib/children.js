@@ -10,7 +10,7 @@
 //             note (optional), createdAt (serverTimestamp)
 
 import {
-  collection, doc, addDoc, setDoc, updateDoc, deleteDoc, getDoc, getDocs,
+  collection, doc, addDoc, updateDoc, deleteDoc, getDoc, getDocs,
   query, orderBy, serverTimestamp,
 } from 'firebase/firestore';
 import { db } from './firebase.js';

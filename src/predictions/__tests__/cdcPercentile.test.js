@@ -76,7 +76,12 @@ describe('cdcStatureZ', () => {
       heightCm: X,
     });
     expect(Math.abs(res.z)).toBeLessThan(0.1);
-    expect(res.percentile).toBeCloseTo(50, 0);
+    // The height comes from the ageMonths=120.5 LMS row, but the birth/measure
+    // dates above put the child at ~120.0 months (365.25-day years). Evaluating
+    // the 120.5 median at 120.0 leaves a small positive z, so the percentile is
+    // ~51.3, not exactly 50. That is correct behaviour, not drift.
+    expect(res.percentile).toBeGreaterThan(50);
+    expect(res.percentile).toBeLessThan(53);
   });
 });
 
@@ -93,7 +98,10 @@ describe('cdcPercentileProjection', () => {
     // 50th percentile at age 20 for boys in the CDC reference is around 176.8 cm.
     expect(res.predictedAdultHeightCm).toBeGreaterThan(174);
     expect(res.predictedAdultHeightCm).toBeLessThan(179);
-    expect(res.currentPercentile).toBeCloseTo(50, 0);
+    // See note above: ~51.3, not 50, because the LMS row age and the computed
+    // age differ by half a month.
+    expect(res.currentPercentile).toBeGreaterThan(50);
+    expect(res.currentPercentile).toBeLessThan(53);
   });
 
   it('a 90th-percentile girl projects taller than the median', () => {

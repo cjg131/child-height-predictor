@@ -41,6 +41,7 @@ const TANNER_PCT_GIRLS = { 1: 85, 2: 88, 3: 94, 4: 97, 5: 99 };
  */
 export function cdcPercentileProjectionEnhanced(params) {
   const base = cdcPercentileProjection(params);
+  if (base == null) return null;   // outside the CDC 2-20 table, or bad input
   const { velocityState, tannerStage, sex, heightCm } = params;
 
   let adjustedPrediction = base.predictedAdultHeightCm;

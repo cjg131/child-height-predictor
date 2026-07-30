@@ -55,12 +55,6 @@ export function formatHeight(cm, { showCm = false, showFtIn = true } = {}) {
 }
 
 // Format kg as "X lb Y oz".
-export function formatLbOz(kg) {
-  const { lb, oz } = kgToLbOz(kg);
-  const ozRounded = Math.round(oz * 10) / 10;
-  if (ozRounded === 16) return `${lb + 1} lb 0 oz`;
-  return `${lb} lb ${ozRounded} oz`;
-}
 
 // Compute a decimal age in years from a birth date and measurement date.
 // Accepts Date objects or ISO strings. Result is clamped at zero.

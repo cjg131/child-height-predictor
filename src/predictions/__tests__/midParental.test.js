@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { midParentalHeight, midParentalHeightImperial } from '../midParental.js';
-import { inToCm } from '../../lib/units.js';
+import { inToCm, cmToIn } from '../../lib/units.js';
 
 describe('midParentalHeight', () => {
   it('returns null when a parent height is missing', () => {
@@ -38,8 +38,12 @@ describe('midParentalHeight', () => {
       motherHeightIn: 64,
       fatherHeightIn: 72,
     });
-    // Point estimate in inches should be 68 + 2.5 = 70.5
-    expect(r.targetIn).toBeCloseTo(70.5, 2);
+    // Tanner's rule is quoted as "+2.5 inches" in imperial and "+6.5 cm" in
+    // metric, but those are not the same number: 2.5 in = 6.35 cm. This engine
+    // stores everything in cm and uses the metric convention (6.5 cm), so the
+    // imperial round-trip lands at 68 + 2.559 = 70.559 in, not 70.5. Asserting
+    // the true value rather than the folk one.
+    expect(r.targetIn).toBeCloseTo(68 + cmToIn(6.5), 6);
   });
 
   it('throws on invalid sex', () => {

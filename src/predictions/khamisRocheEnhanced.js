@@ -20,6 +20,7 @@
 // envelope.
 
 import { khamisRoche } from './khamisRoche.js';
+import { Z_90, Z_95 } from './constants.js';
 
 const EARLY_REBOUND_OFFSET_CM = -1.5;
 const LATE_REBOUND_OFFSET_CM  = +1.5;
@@ -66,8 +67,8 @@ export function khamisRocheEnhanced(params) {
     }
   }
 
-  const ci90 = 1.645 * sd;
-  const ci95 = 1.96 * sd;
+  const ci90 = Z_90 * sd;
+  const ci95 = Z_95 * sd;
 
   return {
     ...base,

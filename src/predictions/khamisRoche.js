@@ -47,25 +47,18 @@
 // stays within the published K-R accuracy band for deviations from
 // median-parent inputs.
 
-import { inToCm } from '../lib/units.js';
-import {
-  cdcPercentileProjection,
-  cdcStatureZ,
-  valueFromLMS,
-  zFromLMS,
-} from './cdcPercentile.js';
-import { CDC_STATURE_LMS } from '../growth-data/cdc-stature-lms.js';
+import { cdcPercentileProjection, zFromLMS } from './cdcPercentile.js';
 import { CDC_WEIGHT_LMS } from '../growth-data/cdc-weight-lms.js';
 import { ageInYears } from '../lib/units.js';
+import {
+  MPH_OFFSET_CM, Z_90, Z_95, adultHeightCm, childHeightCm, weightKg, isSex,
+} from './constants.js';
 
 const KR_MIN_AGE_YEARS = 4.0;
 const KR_MAX_AGE_YEARS = 17.5;
 
 // Published SE per Khamis & Roche 1994.
-const KR_SE_CM = { male: 5.6 / 1.645, female: 4.3 / 1.645 };
-
-// Mid-parental offset (cm), Tanner.
-const MPH_OFFSET_CM = 6.5;
+const KR_SE_CM = { male: 5.6 / Z_90, female: 4.3 / Z_90 };
 
 // Blend weight: how much of the prediction comes from the child's own
 // percentile trajectory vs. the mid-parental target. Grows from 0.5 at age 4
@@ -118,14 +111,14 @@ export function khamisRoche({
   motherHeightCm,
   fatherHeightCm,
 }) {
-  if (
-    currentHeightCm == null ||
-    currentWeightKg == null ||
-    motherHeightCm == null ||
-    fatherHeightCm == null
-  ) {
-    return null;
-  }
+  // Coerce every numeric input up front. K-R needs all four; if any one fails
+  // to parse or lands outside a plausible range, there is no prediction to make.
+  const hCm = childHeightCm(currentHeightCm);
+  const wKg = weightKg(currentWeightKg);
+  const momCm = adultHeightCm(motherHeightCm);
+  const dadCm = adultHeightCm(fatherHeightCm);
+  if (hCm == null || wKg == null || momCm == null || dadCm == null) return null;
+  if (!isSex(sex)) return null;
 
   const ageY = ageInYears(birthDate, measurementDate);
   const inRange = ageY >= KR_MIN_AGE_YEARS && ageY <= KR_MAX_AGE_YEARS;
@@ -140,11 +133,14 @@ export function khamisRoche({
     sex,
     birthDate,
     measurementDate: dateForCalc,
-    heightCm: currentHeightCm,
+    heightCm: hCm,
   });
+  // K-R is a blend built on top of the CDC trajectory. Without that component
+  // there is no meaningful blend to report.
+  if (projection == null) return null;
 
   // Component 2: Mid-parental target (Tanner).
-  const midParent = (motherHeightCm + fatherHeightCm) / 2;
+  const midParent = (momCm + dadCm) / 2;
   const mphCm = sex === 'male' ? midParent + MPH_OFFSET_CM : midParent - MPH_OFFSET_CM;
 
   // Component 3: Weight-for-age correction. If the child is heavier than
@@ -154,7 +150,7 @@ export function khamisRoche({
   // after all variables is ~+0.05 cm per kg of excess weight above median).
   const ageMos = ageY * 12;
   const wLms = weightLmsAtAge(sex, ageMos);
-  const weightZ = zFromLMS(currentWeightKg, wLms.L, wLms.M, wLms.S);
+  const weightZ = zFromLMS(wKg, wLms.L, wLms.M, wLms.S);
   // Cap the weight contribution at +/- 2 cm so an extreme-weight child
   // doesn't blow up the prediction.
   const weightAdjustmentCm = Math.max(-2, Math.min(2, 0.8 * weightZ));
@@ -165,8 +161,8 @@ export function khamisRoche({
   const predictedAdultHeightCm = base + weightAdjustmentCm;
 
   const seCm = KR_SE_CM[sex];
-  const ci90Cm = 1.645 * seCm;
-  const ci95Cm = 1.96 * seCm;
+  const ci90Cm = Z_90 * seCm;
+  const ci95Cm = Z_95 * seCm;
 
   return {
     method: 'khamis-roche',

@@ -47,6 +47,28 @@ function lmsAtAge(table, ageMonths) {
   };
 }
 
+// The CDC 2000 stature-for-age tables cover 24-240 months. Below 24 months the
+// correct reference is the WHO 0-2 length-for-age standard, which we do not
+// ship. Clamping to the 24-month row instead of refusing silently reports a
+// normal 14-month-old as 0.8th percentile, so we refuse.
+export const CDC_MIN_AGE_MONTHS = 24;
+export const CDC_MAX_AGE_MONTHS = 240;
+
+// ageInMonths() divides elapsed milliseconds by a 365.25-day year, so a child
+// measured on their exact 2nd birthday computes as 23.98 months, not 24.0. A
+// strict >= 24 test would refuse them. This tolerance (~3 days) absorbs that
+// drift at both ends without admitting anyone meaningfully outside the table.
+const AGE_EPSILON_MONTHS = 0.1;
+
+/** True when an age falls inside the CDC 2-20 stature table. */
+export function inTableRange(ageMonths) {
+  return (
+    Number.isFinite(ageMonths)
+    && ageMonths >= CDC_MIN_AGE_MONTHS - AGE_EPSILON_MONTHS
+    && ageMonths <= CDC_MAX_AGE_MONTHS + AGE_EPSILON_MONTHS
+  );
+}
+
 /** Compute a z-score given LMS parameters and an observed value X. */
 export function zFromLMS(X, L, M, S) {
   if (L === 0) return Math.log(X / M) / S;
@@ -58,8 +80,9 @@ export function valueFromLMS(z, L, M, S) {
   if (L === 0) return M * Math.exp(S * z);
   const base = 1 + L * S * z;
   if (base <= 0) {
-    // Shouldn't happen for realistic z in height data, but guard anyway.
-    return M;
+    // Only reachable for absurd z. Returning M here would launder nonsense
+    // into a plausible-looking median, so surface it as NaN instead.
+    return NaN;
   }
   return M * Math.pow(base, 1 / L);
 }
@@ -107,8 +130,15 @@ function tableForSex(sex) {
  */
 export function cdcStatureZ({ sex, birthDate, measurementDate, heightCm }) {
   const ageMos = ageInMonths(birthDate, measurementDate);
+  if (!inTableRange(ageMos)) return null;
+
+  const h = Number(heightCm);
+  if (!Number.isFinite(h) || h <= 0) return null;
+
   const lms = lmsAtAge(tableForSex(sex), ageMos);
-  const z = zFromLMS(heightCm, lms.L, lms.M, lms.S);
+  const z = zFromLMS(h, lms.L, lms.M, lms.S);
+  if (!Number.isFinite(z)) return null;
+
   return {
     ageMonths: ageMos,
     z,
@@ -137,18 +167,21 @@ export function cdcPercentileProjection({
   let percentile;
 
   if (zOverride != null) {
-    z = zOverride;
+    z = Number(zOverride);
     ageMos = ageInMonths(birthDate, measurementDate);
+    if (!Number.isFinite(z) || !inTableRange(ageMos)) return null;
     percentile = zToPercentile(z);
   } else {
     const result = cdcStatureZ({ sex, birthDate, measurementDate, heightCm });
+    if (result == null) return null;      // out of table range or bad input
     z = result.z;
     ageMos = result.ageMonths;
     percentile = result.percentile;
   }
 
-  const adultLms = lmsAtAge(tableForSex(sex), 240);  // 20 years old
+  const adultLms = lmsAtAge(tableForSex(sex), CDC_MAX_AGE_MONTHS);  // 20 years old
   const adultHeightCm = valueFromLMS(z, adultLms.L, adultLms.M, adultLms.S);
+  if (!Number.isFinite(adultHeightCm)) return null;
 
   // Published standard error for percentile-holding projection is roughly
   // 3cm at age 8 and narrows as the child ages. We model a gentle decay.
@@ -195,5 +228,3 @@ export function cdcPercentileCurves(sex, { startMonths = 24, endMonths = 240, st
   }
   return rows;
 }
-
-export const _internal = { lmsAtAge };

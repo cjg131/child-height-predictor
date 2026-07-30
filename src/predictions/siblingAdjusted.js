@@ -29,18 +29,27 @@
 
 import { inToCm } from '../lib/units.js';
 import { midParentalHeight } from './midParental.js';
+import { MPH_OFFSET_CM, adultHeightCm, isSex } from './constants.js';
 
 const RESIDUAL_SD_CM = 5.0;               // total residual SD around MPH
 const RESIDUAL_VAR = RESIDUAL_SD_CM * RESIDUAL_SD_CM;
 const RHO = 0.5;                          // sibling correlation in residuals
 const SHARED_VAR = RHO * RESIDUAL_VAR;          // variance of family residual
 const UNIQUE_VAR = (1 - RHO) * RESIDUAL_VAR;    // per-child noise variance
-const MPH_OFFSET_CM = 6.5;
 
 function sexOffset(sex) {
   if (sex === 'male') return MPH_OFFSET_CM;
   if (sex === 'female') return -MPH_OFFSET_CM;
   throw new Error(`sexOffset: unsupported sex ${sex}`);
+}
+
+// A sibling only counts as evidence if we can read both their sex and a
+// plausible finished adult height. Partial rows are dropped, not guessed at.
+function normalizeSibling(s) {
+  if (!s || !isSex(s.sex)) return null;
+  const h = adultHeightCm(s.adultHeightCm);
+  if (h == null) return null;
+  return { sex: s.sex, adultHeightCm: h };
 }
 
 /**
@@ -57,9 +66,7 @@ export function siblingAdjustedHeight({ sex, motherHeightCm, fatherHeightCm, sib
   const mph = midParentalHeight({ sex, motherHeightCm, fatherHeightCm });
   if (!mph) return null;
 
-  const validSibs = (siblings || []).filter(
-    (s) => s && (s.sex === 'male' || s.sex === 'female') && Number.isFinite(s.adultHeightCm),
-  );
+  const validSibs = (siblings || []).map(normalizeSibling).filter(Boolean);
 
   if (validSibs.length === 0) {
     return {
@@ -76,7 +83,7 @@ export function siblingAdjustedHeight({ sex, motherHeightCm, fatherHeightCm, sib
   }
 
   // Each sibling's residual: observed adult height minus their own MPH.
-  const midParent = (motherHeightCm + fatherHeightCm) / 2;
+  const midParent = (adultHeightCm(motherHeightCm) + adultHeightCm(fatherHeightCm)) / 2;
   const residuals = validSibs.map((s) => s.adultHeightCm - (midParent + sexOffset(s.sex)));
   const meanResidual = residuals.reduce((a, b) => a + b, 0) / residuals.length;
 

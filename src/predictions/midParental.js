@@ -13,14 +13,18 @@
 // check rather than a precise forecast.
 
 import { inToCm, cmToIn } from '../lib/units.js';
+import { MPH_OFFSET_CM, MPH_SD_CM, adultHeightCm, isSex } from './constants.js';
 
-const MPH_OFFSET_CM = 6.5;         // 2.5 inches, converted
 const MPH_RANGE_CM = 10;           // approx +/- 4 inches 95% CI
-const MPH_SD_CM = 5;               // approx 2 inches (1 SD)
 
+// Both parent heights must coerce to plausible adult heights. Anything else
+// (nulls, strings that aren't numeric, values outside 120-230 cm) yields null
+// rather than a computed answer built on bad input.
 function meanIfDefined(a, b) {
-  if (a == null || b == null) return null;
-  return (a + b) / 2;
+  const ma = adultHeightCm(a);
+  const fa = adultHeightCm(b);
+  if (ma == null || fa == null) return null;
+  return (ma + fa) / 2;
 }
 
 /**
@@ -42,7 +46,7 @@ function meanIfDefined(a, b) {
 export function midParentalHeight({ sex, motherHeightCm, fatherHeightCm }) {
   const midParent = meanIfDefined(motherHeightCm, fatherHeightCm);
   if (midParent == null) return null;
-  if (sex !== 'male' && sex !== 'female') {
+  if (!isSex(sex)) {
     throw new Error(`midParentalHeight: sex must be 'male' or 'female', got ${sex}`);
   }
 

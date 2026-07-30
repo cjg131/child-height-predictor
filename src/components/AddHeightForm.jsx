@@ -143,7 +143,7 @@ export default function AddHeightForm({ onAdd }) {
               placeholder="e.g. 7.5"
               className="mt-1 w-full border border-slate-300 rounded px-3 py-2" />
             <p className="text-[11px] text-slate-500 mt-1">
-              Kids' and adult scales differ. Just use what's printed on the shoe.
+              Kids&rsquo; and adult scales differ. Just use what&rsquo;s printed on the shoe.
               A plateau for 12+ months signals growth is ending.
             </p>
           </div>

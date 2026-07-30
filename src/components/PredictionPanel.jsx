@@ -73,7 +73,7 @@ export default function PredictionPanel({ child, latest, heights = [] }) {
   if (!prediction || !prediction.consensus) {
     return (
       <p className="text-sm text-slate-500">
-        Fill in both parent heights on {child.name}'s profile, or add a height
+        Fill in both parent heights on {child.name}&rsquo;s profile, or add a height
         measurement below. Either one gets you a first estimate; together they
         refine it.
       </p>
@@ -101,8 +101,12 @@ export default function PredictionPanel({ child, latest, heights = [] }) {
         </p>
         <p className="text-xs text-slate-500 mt-1">
           Weighted average of {consensus.pointCount} method{consensus.pointCount === 1 ? '' : 's'}.
-          {spreadIn != null && spreadIn > 4 && (
-            <> Methods disagree by {spreadIn.toFixed(1)} in, take with a grain of salt.</>
+          {spreadIn != null && spreadIn > 2 && (
+            <>
+              {' '}Methods disagree by {spreadIn.toFixed(1)} in, so the range above has
+              been widened to account for it.
+              {consensus.sdCapped && ' Treat this as a rough estimate.'}
+            </>
           )}
         </p>
         {!hasMeasurement && (
@@ -201,7 +205,7 @@ export default function PredictionPanel({ child, latest, heights = [] }) {
 
       <p className="text-xs text-slate-400 leading-relaxed border-t border-slate-200 pt-2">
         These are estimates based on population averages. Every child is different,
-        and growth can surprise you, especially around puberty. If you're worried
+        and growth can surprise you, especially around puberty. If you&rsquo;re worried
         about growth, talk to your pediatrician.
       </p>
     </div>

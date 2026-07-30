@@ -22,14 +22,15 @@
 
 import { midParentalHeight } from './midParental.js';
 import { siblingAdjustedHeight } from './siblingAdjusted.js';
-import { cdcPercentileProjection } from './cdcPercentile.js';
 import { cdcPercentileProjectionEnhanced } from './cdcPercentileEnhanced.js';
-import { khamisRoche } from './khamisRoche.js';
 import { khamisRocheEnhanced } from './khamisRocheEnhanced.js';
 import { boneAgeProjection } from './boneAgeProjection.js';
 import { heightVelocity } from './heightVelocity.js';
 import { bmiTrajectory } from './bmiTrajectory.js';
 import { shoeSizeSignal } from './shoeSizeSignal.js';
+import {
+  tannerStage as tannerStageInput, Z_90, Z_95, MPH_SD_CM,
+} from './constants.js';
 
 /**
  * Orchestrate all predictors.
@@ -59,9 +60,14 @@ export function combinePredictions(params) {
     fatherHeightCm = null,
     siblings = [],
     boneAgeYears = null,
-    tannerStage = null,
+    tannerStage: rawTannerStage = null,
     heights = [],
   } = params;
+
+  // A <select> hands back strings ('4'), and Firestore returns whatever was
+  // written. Coerce to an integer 1-5 or drop it -- a stray '4 ' or 0 must not
+  // reach the Tanner percent-complete tables.
+  const tannerStage = tannerStageInput(rawTannerStage);
 
   // --- 1. Compute tempo signals ---
   const signals = {
@@ -91,11 +97,14 @@ export function combinePredictions(params) {
 
   // CDC percentile enhanced
   if (currentHeightCm != null) {
-    results.cdcPercentile = cdcPercentileProjectionEnhanced({
+    const cdc = cdcPercentileProjectionEnhanced({
       sex, birthDate, measurementDate, heightCm: currentHeightCm,
       velocityState: velocityState === 'insufficient' ? null : velocityState,
       tannerStage,
     });
+    // Null under age 2 (outside the CDC stature table) -- omit rather than
+    // publishing a clamped, badly wrong percentile.
+    if (cdc) results.cdcPercentile = cdc;
   }
 
   // Khamis-Roche enhanced
@@ -134,10 +143,10 @@ export function combinePredictions(params) {
       results.khamisRoche = {
         ...results.khamisRoche,
         sdCm: newSd,
-        rangeLowCm: results.khamisRoche.predictedAdultHeightCm - 1.96 * newSd,
-        rangeHighCm: results.khamisRoche.predictedAdultHeightCm + 1.96 * newSd,
-        ci90LowCm: results.khamisRoche.predictedAdultHeightCm - 1.645 * newSd,
-        ci90HighCm: results.khamisRoche.predictedAdultHeightCm + 1.645 * newSd,
+        rangeLowCm: results.khamisRoche.predictedAdultHeightCm - Z_95 * newSd,
+        rangeHighCm: results.khamisRoche.predictedAdultHeightCm + Z_95 * newSd,
+        ci90LowCm: results.khamisRoche.predictedAdultHeightCm - Z_90 * newSd,
+        ci90HighCm: results.khamisRoche.predictedAdultHeightCm + Z_90 * newSd,
         adjustments: [
           ...(results.khamisRoche.adjustments || []),
           { signal: 'shoe-plateau', effect: 'SD tightened by 20% (foot stopped growing)' },
@@ -149,15 +158,27 @@ export function combinePredictions(params) {
   // --- 4. Build points array for consensus ---
   // Prefer sibling-adjusted over plain mid-parental when both exist, so we
   // don't double-count the parental signal.
+  //
+  // Khamis-Roche is internally a blend of the CDC trajectory and mid-parental
+  // height (see khamisRoche.js). When K-R is in the pool the genetic signal is
+  // already baked into it, so admitting mid-parental as a separate
+  // "independent" observation counts the parents twice and makes the pooled SD
+  // artificially tight. Sibling-adjusted carries information K-R lacks (the
+  // realized family residual), so it keeps its seat -- but with its SD inflated
+  // to reflect the overlap with K-R's mid-parental component.
+  const krInPool = Boolean(results.khamisRoche && results.khamisRoche.inAgeRange);
+  const GENETIC_OVERLAP_INFLATION = 1.4; // ~half the information is shared with K-R
+
   const points = [];
   if (results.siblingAdjusted) {
     points.push({
       label: 'Sibling-adjusted',
       cm: results.siblingAdjusted.targetCm,
-      sdCm: results.siblingAdjusted.sdCm,
+      sdCm: results.siblingAdjusted.sdCm * (krInPool ? GENETIC_OVERLAP_INFLATION : 1),
       weight: null, // filled in after
     });
-  } else if (results.midParental) {
+  } else if (results.midParental && !krInPool) {
+    // Only admit bare mid-parental when K-R isn't already carrying it.
     points.push({
       label: 'Mid-parental',
       cm: results.midParental.targetCm,
@@ -165,7 +186,7 @@ export function combinePredictions(params) {
       weight: null,
     });
   }
-  if (results.khamisRoche && results.khamisRoche.inAgeRange) {
+  if (krInPool) {
     points.push({
       label: 'Khamis-Roche',
       cm: results.khamisRoche.predictedAdultHeightCm,
@@ -190,28 +211,93 @@ export function combinePredictions(params) {
     });
   }
 
-  // --- 5. Inverse-variance consensus ---
+  // --- 5. Random-effects consensus ---
+  //
+  // Fixed-effect (pure inverse-variance) pooling assumes every predictor is an
+  // unbiased draw from the same underlying truth. That assumption fails badly
+  // here: when bone age says 165 cm and mid-parental says 179 cm, at least one
+  // method is systematically wrong for this child, and averaging them with
+  // 1/sd^2 weights produces a confidence interval that excludes every input --
+  // the classic false-precision failure of naive meta-analysis.
+  //
+  // We use DerSimonian-Laird random effects instead. Q measures observed
+  // disagreement against what the reported SDs would predict; the excess
+  // becomes tau^2, a between-method variance added to every predictor before
+  // re-weighting. When methods agree, tau^2 -> 0 and this reduces exactly to
+  // the old inverse-variance result. When they disagree, the pooled SD widens
+  // and the weights flatten (a very tight predictor stops dominating a pool it
+  // visibly conflicts with).
   let consensus = null;
   if (points.length) {
+    const variance = (p) => p.sdCm * p.sdCm;
+
+    // Fixed-effect pass -- needed to compute Q.
     let wSum = 0;
     let wxSum = 0;
+    let w2Sum = 0;
     for (const p of points) {
-      const w = 1 / (p.sdCm * p.sdCm);
+      const w = 1 / variance(p);
       wSum += w;
       wxSum += w * p.cm;
+      w2Sum += w * w;
     }
-    // Fill in normalized weights for UI transparency.
+    const fixedMean = wxSum / wSum;
+
+    // Cochran's Q: weighted sum of squared deviations from the fixed-effect mean.
+    let Q = 0;
     for (const p of points) {
-      p.weight = (1 / (p.sdCm * p.sdCm)) / wSum;
+      const d = p.cm - fixedMean;
+      Q += (1 / variance(p)) * d * d;
     }
-    const consensusCm = wxSum / wSum;
-    const consensusSdCm = Math.sqrt(1 / wSum);
+
+    // DerSimonian-Laird tau^2. df = k-1; the denominator is the scaling term
+    // that converts excess Q into a variance on the same scale as the inputs.
+    const k = points.length;
+    let tau2 = 0;
+    if (k > 1) {
+      const denom = wSum - w2Sum / wSum;
+      if (denom > 0) tau2 = Math.max(0, (Q - (k - 1)) / denom);
+    }
+
+    // Random-effects pass with tau^2 folded into every variance.
+    let rwSum = 0;
+    let rwxSum = 0;
+    for (const p of points) {
+      const rw = 1 / (variance(p) + tau2);
+      rwSum += rw;
+      rwxSum += rw * p.cm;
+    }
+    for (const p of points) {
+      p.weight = (1 / (variance(p) + tau2)) / rwSum;
+    }
+
+    const consensusCm = rwxSum / rwSum;
+    // Pooled SE of the mean, plus the between-method spread itself. A parent
+    // wants the range the child is likely to land in, not the range the
+    // *average of our methods* is likely to land in -- so tau is included.
+    const rawSdCm = Math.sqrt(1 / rwSum + tau2);
+
+    // Cap the widening. With k=3 and one outlier, DerSimonian-Laird can inflate
+    // tau enough that the consensus becomes LESS certain than mid-parental
+    // alone -- which is incoherent, because the parental signal is always
+    // available as a floor of knowledge. Adding evidence should never leave us
+    // worse off than the baseline we started from. So the pooled SD is capped
+    // at the loosest contributing method, or the mid-parental SD, whichever is
+    // wider. Disagreement still widens the range; it just cannot widen it past
+    // "we know roughly what the parents imply and nothing more".
+    const loosestSdCm = Math.max(...points.map((p) => p.sdCm));
+    const sdCapCm = Math.max(loosestSdCm, MPH_SD_CM);
+    const consensusSdCm = Math.min(rawSdCm, sdCapCm);
+    const sdCapped = rawSdCm > sdCapCm;
+
     consensus = {
       predictedAdultHeightCm: consensusCm,
       sdCm: consensusSdCm,
       rangeLowCm: consensusCm - 2 * consensusSdCm,
       rangeHighCm: consensusCm + 2 * consensusSdCm,
       pointCount: points.length,
+      heterogeneitySdCm: Math.sqrt(tau2),
+      sdCapped,
       points,
     };
   }
@@ -255,11 +341,14 @@ export function combinePredictions(params) {
       detail: null,
     });
   }
-  if (boneAgeYears != null) {
+  // Only advertise bone age as an active signal when it actually parsed and
+  // produced a prediction -- otherwise the badge would claim a signal the
+  // consensus never saw.
+  if (results.boneAge) {
     activeSignals.push({
       signal: 'bone-age',
-      state: `${boneAgeYears.toFixed(1)} yrs`,
-      detail: null,
+      state: `${results.boneAge.boneAgeYears.toFixed(1)} yrs`,
+      detail: results.boneAge.category ? `${results.boneAge.category} maturer` : null,
     });
   }
   if (validSibs.length > 0) {
