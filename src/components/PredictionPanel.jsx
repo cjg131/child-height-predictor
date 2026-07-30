@@ -5,6 +5,7 @@
 // measurement's optional fields (Tanner, bone age) are surfaced to the
 // engine as well.
 
+import { Link } from 'react-router-dom';
 import React, { useMemo } from 'react';
 import { combinePredictions } from '../predictions/index.js';
 import { formatFeetInches, cmToIn } from '../lib/units.js';
@@ -76,9 +77,10 @@ export default function PredictionPanel({ child, latest, heights = [] }) {
   if (!prediction || !prediction.consensus) {
     return (
       <p className="text-sm text-slate-500">
-        Fill in both parent heights on {child.name}&rsquo;s profile, or add a height
-        measurement below. Either one gets you a first estimate; together they
-        refine it.
+        Add both parent heights on the{' '}
+        <Link to="/parents" className="text-brand-600 underline">Parents</Link>{' '}
+        page, or add a height measurement below. Either one gets you a first
+        estimate; together they refine it.
       </p>
     );
   }

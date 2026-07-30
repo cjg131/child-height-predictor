@@ -2,8 +2,11 @@
 //
 // Shape:
 //   users/{uid}/children/{childId}          — child profile
-//     fields: name, birthDate (ISO), sex ('male'|'female'),
-//             motherHeightCm, fatherHeightCm, createdAt (serverTimestamp)
+//     fields: name, birthDate (ISO), sex ('male'|'female'), siblings,
+//             createdAt (serverTimestamp)
+//     legacy: motherHeightCm / fatherHeightCm may still be present on children
+//             created before the Parents page existed. See lib/family.js —
+//             they are read as a fallback and never rewritten.
 //
 //   users/{uid}/children/{childId}/heights/{heightId}
 //     fields: measurementDate (ISO), heightCm, weightKg (optional),

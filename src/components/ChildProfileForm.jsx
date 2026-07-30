@@ -1,9 +1,12 @@
 // ChildProfileForm — the shared editor for child profile fields. Used by
 // NewChildPage for creation and by ChildDetailPage for in-place edits.
 //
-// Height inputs are ft + in (blank ft counts as 0). Submission passes a
-// data object with name, birthDate, sex, motherHeightCm, fatherHeightCm,
-// siblings back to the parent, which decides whether to create or update.
+// Submission passes a data object with name, birthDate, sex and siblings back
+// to the parent, which decides whether to create or update.
+//
+// Parent heights and parental pubertal timing are NOT here: they describe the
+// parents, not the child, so they live once on the Parents page
+// (src/pages/ParentsPage.jsx) instead of being duplicated per child.
 //
 // Siblings captures ADULT brothers/sisters only (their height is settled).
 // This is an independent genetic signal beyond parents.
@@ -90,33 +93,15 @@ export default function ChildProfileForm({
   onSubmit,
   onCancel,
 }) {
-  const initMom = cmToFtIn(initial?.motherHeightCm ?? null);
-  const initDad = cmToFtIn(initial?.fatherHeightCm ?? null);
 
   const [name, setName] = useState(initial?.name ?? '');
   const [birthDate, setBirthDate] = useState(initial?.birthDate ?? '');
   const [sex, setSex] = useState(initial?.sex ?? 'male');
-  const [motherFt, setMotherFt] = useState(initMom.ft);
-  const [motherIn, setMotherIn] = useState(initMom.inches);
-  const [fatherFt, setFatherFt] = useState(initDad.ft);
-  const [fatherIn, setFatherIn] = useState(initDad.inches);
   const [siblings, setSiblings] = useState(
     Array.isArray(initial?.siblings) ? initial.siblings : [],
   );
-  const [motherMenarcheAge, setMotherMenarcheAge] = useState(
-    initial?.motherMenarcheAgeYears != null ? String(initial.motherMenarcheAgeYears) : '',
-  );
-  const [fatherMaturation, setFatherMaturation] = useState(
-    initial?.fatherMaturation ?? '',
-  );
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
-
-  const parseHeight = (ft, inches) => {
-    const total = ftInToInches(ft, inches);
-    if (total == null || total <= 0) return null;
-    return inToCm(total);
-  };
 
   const updateSibling = (i, next) => {
     setSiblings((prev) => prev.map((s, idx) => (idx === i ? next : s)));
@@ -137,11 +122,7 @@ export default function ChildProfileForm({
         name,
         birthDate,
         sex,
-        motherHeightCm: parseHeight(motherFt, motherIn),
-        fatherHeightCm: parseHeight(fatherFt, fatherIn),
         siblings: siblings.filter((s) => s.adultHeightCm != null),
-        motherMenarcheAgeYears: motherMenarcheAge ? Number(motherMenarcheAge) : null,
-        fatherMaturation: fatherMaturation || null,
       });
     } catch (err) {
       setError(err.message || 'Save failed');
@@ -171,66 +152,6 @@ export default function ChildProfileForm({
           <option value="female">Female</option>
         </select>
       </div>
-      <fieldset className="border border-slate-200 rounded p-3">
-        <legend className="text-sm font-medium text-slate-700 px-1">
-          Parent heights (optional, improves predictions)
-        </legend>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-1">
-          <HeightFtIn label="Mother"
-            ft={motherFt} inches={motherIn}
-            onChangeFt={setMotherFt} onChangeIn={setMotherIn} />
-          <HeightFtIn label="Father"
-            ft={fatherFt} inches={fatherIn}
-            onChangeFt={setFatherFt} onChangeIn={setFatherIn} />
-        </div>
-      </fieldset>
-      <fieldset className="border border-slate-200 rounded p-3">
-        <legend className="text-sm font-medium text-slate-700 px-1">
-          Parents&rsquo; own puberty (optional)
-        </legend>
-        <p className="text-[11px] text-slate-500 mb-2">
-          When a child hits puberty is strongly inherited, and it changes how
-          much growth is left at any given height. Without a bone-age X-ray this
-          is the best substitute we have. Skip anything you&rsquo;re unsure of.
-        </p>
-        <div className="space-y-3">
-          <div>
-            <label className="block text-sm font-medium text-slate-700">
-              Mother&rsquo;s age at first period
-            </label>
-            <input
-              type="number" min="8" max="18" step="0.5"
-              value={motherMenarcheAge}
-              onChange={(e) => setMotherMenarcheAge(e.target.value)}
-              placeholder="e.g. 12.5"
-              className="mt-1 w-full border border-slate-300 rounded px-3 py-2"
-            />
-            <p className="text-[11px] text-slate-500 mt-1">
-              Average is about 12&frac12;. Earlier suggests a faster-maturing
-              family, later a slower one.
-            </p>
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-slate-700">
-              Father&rsquo;s growth timing
-            </label>
-            <select
-              value={fatherMaturation}
-              onChange={(e) => setFatherMaturation(e.target.value)}
-              className="mt-1 w-full border border-slate-300 rounded px-3 py-2 bg-white"
-            >
-              <option value="">Not sure / skip</option>
-              <option value="early">Early &mdash; done growing by ~15</option>
-              <option value="average">Average &mdash; done around 16&ndash;17</option>
-              <option value="late">Late &mdash; still grew at 18+</option>
-            </select>
-            <p className="text-[11px] text-slate-500 mt-1">
-              A useful jog: did he keep getting taller after high school?
-            </p>
-          </div>
-        </div>
-      </fieldset>
-
       <fieldset className="border border-slate-200 rounded p-3">
         <legend className="text-sm font-medium text-slate-700 px-1">
           Adult siblings (optional, tightens genetic target)

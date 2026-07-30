@@ -10,6 +10,7 @@ import GrowthChart from '../components/GrowthChart.jsx';
 import PredictionPanel from '../components/PredictionPanel.jsx';
 import HeightTable from '../components/HeightTable.jsx';
 import ChildProfileForm from '../components/ChildProfileForm.jsx';
+import { getFamily, resolveParentData } from '../lib/family.js';
 import { ageInYears, formatFeetInches as parentFtIn } from '../lib/units.js';
 
 export default function ChildDetailPage() {
@@ -17,6 +18,7 @@ export default function ChildDetailPage() {
   const { childId } = useParams();
   const navigate = useNavigate();
   const [child, setChild] = useState(null);
+  const [family, setFamily] = useState(null);
   const [heights, setHeights] = useState([]);
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -25,12 +27,14 @@ export default function ChildDetailPage() {
   const reload = async () => {
     setLoading(true);
     try {
-      const [c, hs] = await Promise.all([
+      const [c, hs, fam] = await Promise.all([
         getChild(user.uid, childId),
         listHeights(user.uid, childId),
+        getFamily(user.uid),
       ]);
       setChild(c);
       setHeights(hs);
+      setFamily(fam);
     } catch (e) {
       setError(e.message);
     } finally {
@@ -76,6 +80,9 @@ export default function ChildDetailPage() {
   if (loading || !child) return <p>Loading...</p>;
 
   const latest = heights.length ? heights[heights.length - 1] : null;
+  // Family record wins field-by-field; children saved before the Parents page
+  // existed still carry their own copies, which are used as the fallback.
+  const parents = resolveParentData(family, child);
   const ageY = ageInYears(child.birthDate, new Date());
 
   return (
@@ -87,11 +94,11 @@ export default function ChildDetailPage() {
           <p className="text-sm text-slate-600">
             {child.sex === 'male' ? 'Boy' : 'Girl'} · born {child.birthDate} · {ageY.toFixed(1)} years old
           </p>
-          {(child.motherHeightCm != null || child.fatherHeightCm != null) && (
+          {(parents.motherHeightCm != null || parents.fatherHeightCm != null) && (
             <p className="text-xs text-slate-500 mt-1">
               Parents:
-              {' '}mom {child.motherHeightCm != null ? parentFtIn(child.motherHeightCm) : '—'}
-              {' · '}dad {child.fatherHeightCm != null ? parentFtIn(child.fatherHeightCm) : '—'}
+              {' '}mom {parents.motherHeightCm != null ? parentFtIn(parents.motherHeightCm) : '—'}
+              {' · '}dad {parents.fatherHeightCm != null ? parentFtIn(parents.fatherHeightCm) : '—'}
             </p>
           )}
         </div>
@@ -130,7 +137,11 @@ export default function ChildDetailPage() {
         </div>
         <div className="bg-white rounded-lg shadow p-4">
           <h3 className="text-lg font-semibold mb-2">Adult height prediction</h3>
-          <PredictionPanel child={child} latest={latest} heights={heights} />
+          <PredictionPanel
+            child={{ ...child, ...parents }}
+            latest={latest}
+            heights={heights}
+          />
         </div>
       </section>
 

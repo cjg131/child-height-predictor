@@ -1421,6 +1421,96 @@ import { shoeSizeSignal } from './src/predictions/shoeSizeSignal.js';
   truthy(tempoAdj(withBoneAge) == null, 'tempo/suppress: bone age supersedes the prior entirely');
 }
 
+
+// --- Family/child parent-data resolution ---------------------------------
+// resolveParentData lives in src/lib/family.js alongside Firestore imports, so
+// it is re-declared here rather than imported. Keep the two in sync; the shape
+// is small and the fallback behaviour is what protects existing children from
+// losing their parent heights when the Parents page is introduced.
+function resolveParentData(family, child) {
+  const pick = (key) => {
+    const fromFamily = family?.[key];
+    if (fromFamily !== undefined && fromFamily !== null && fromFamily !== '') {
+      return fromFamily;
+    }
+    const fromChild = child?.[key];
+    return fromChild === undefined || fromChild === '' ? null : fromChild;
+  };
+  return {
+    motherHeightCm: pick('motherHeightCm'),
+    fatherHeightCm: pick('fatherHeightCm'),
+    motherMenarcheAgeYears: pick('motherMenarcheAgeYears'),
+    fatherMaturation: pick('fatherMaturation'),
+  };
+}
+{
+  // A child saved before the Parents page existed must keep working untouched.
+  const legacy = resolveParentData(null, { motherHeightCm: 165, fatherHeightCm: 180 });
+  truthy(legacy.motherHeightCm === 165, 'family: legacy child mother height preserved');
+  truthy(legacy.fatherHeightCm === 180, 'family: legacy child father height preserved');
+  truthy(legacy.motherMenarcheAgeYears === null, 'family: absent tempo is null, not undefined');
+
+  // Family record wins where it has a value.
+  const both = resolveParentData(
+    { motherHeightCm: 166, fatherHeightCm: 181 },
+    { motherHeightCm: 165, fatherHeightCm: 180 },
+  );
+  truthy(both.motherHeightCm === 166 && both.fatherHeightCm === 181, 'family: family record wins');
+
+  // Field-by-field, not all-or-nothing: a half-filled family record must not
+  // blank out a height still recorded on the child.
+  const partial = resolveParentData(
+    { motherHeightCm: 166 },
+    { motherHeightCm: 165, fatherHeightCm: 180 },
+  );
+  truthy(partial.motherHeightCm === 166, 'family: partial record overrides its own field');
+  truthy(partial.fatherHeightCm === 180, 'family: partial record falls back for the rest');
+
+  // Empty string and null in the family record must not shadow real child data.
+  const blanked = resolveParentData(
+    { motherHeightCm: null, fatherHeightCm: '' },
+    { motherHeightCm: 165, fatherHeightCm: 180 },
+  );
+  truthy(blanked.motherHeightCm === 165, 'family: null does not shadow child value');
+  truthy(blanked.fatherHeightCm === 180, 'family: empty string does not shadow child value');
+
+  // Nothing anywhere is a clean set of nulls, not a crash.
+  const nothing = resolveParentData(null, null);
+  truthy(
+    Object.values(nothing).every((v) => v === null),
+    'family: no data resolves to all nulls',
+  );
+
+  // Tempo fields resolve the same way, and 0 is not treated as absent.
+  const tempo = resolveParentData(
+    { motherMenarcheAgeYears: 12.5, fatherMaturation: 'late' }, {},
+  );
+  truthy(tempo.motherMenarcheAgeYears === 12.5, 'family: menarche resolves from family');
+  truthy(tempo.fatherMaturation === 'late', 'family: father maturation resolves from family');
+}
+{
+  // End to end: the resolved object is what feeds combinePredictions, so a
+  // family-level record must produce the same answer as the old per-child data.
+  const child = { sex: 'male', birthDate: '2014-02-27' };
+  const viaChild = resolveParentData(null, {
+    ...child, motherHeightCm: 165, fatherHeightCm: 180,
+  });
+  const viaFamily = resolveParentData(
+    { motherHeightCm: 165, fatherHeightCm: 180 }, child,
+  );
+  const shared = {
+    sex: 'male', birthDate: '2014-02-27', measurementDate: '2026-07-30',
+    currentHeightCm: 152, currentWeightKg: 43,
+    heights: [{ measurementDate: '2026-07-30', heightCm: 152, weightKg: 43 }],
+  };
+  const a = combinePredictions({ ...shared, ...viaChild });
+  const b = combinePredictions({ ...shared, ...viaFamily });
+  truthy(
+    Math.abs(a.consensus.predictedAdultHeightCm - b.consensus.predictedAdultHeightCm) < 1e-9,
+    'family: family-level and legacy per-child data give identical predictions',
+  );
+}
+
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed) {
   for (const f of fails) console.log(f);

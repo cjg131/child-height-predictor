@@ -5,6 +5,7 @@ import LoginPage from './pages/LoginPage.jsx';
 import ChildrenListPage from './pages/ChildrenListPage.jsx';
 import ChildDetailPage from './pages/ChildDetailPage.jsx';
 import NewChildPage from './pages/NewChildPage.jsx';
+import ParentsPage from './pages/ParentsPage.jsx';
 
 function RequireAuth({ children }) {
   const { user, loading } = useAuth();
@@ -42,6 +43,7 @@ export default function App() {
           <Route path="/login" element={<LoginPage />} />
           <Route path="/" element={<RequireAuth><ChildrenListPage /></RequireAuth>} />
           <Route path="/children/new" element={<RequireAuth><NewChildPage /></RequireAuth>} />
+          <Route path="/parents" element={<RequireAuth><ParentsPage /></RequireAuth>} />
           <Route path="/children/:childId" element={<RequireAuth><ChildDetailPage /></RequireAuth>} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

@@ -21,12 +21,20 @@ export default function ChildrenListPage() {
     <div>
       <div className="flex items-center justify-between mb-4">
         <h2 className="text-xl font-semibold">Your kids</h2>
-        <Link
-          to="/children/new"
-          className="bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium px-3 py-2 rounded"
-        >
-          Add child
-        </Link>
+        <div className="flex items-center gap-3">
+          <Link
+            to="/parents"
+            className="text-sm text-brand-600 hover:text-brand-700 underline"
+          >
+            Parents
+          </Link>
+          <Link
+            to="/children/new"
+            className="bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium px-3 py-2 rounded"
+          >
+            Add child
+          </Link>
+        </div>
       </div>
       {children.length === 0 ? (
         <p className="text-slate-600">No kids yet. Click &ldquo;Add child&rdquo; to get started.</p>
