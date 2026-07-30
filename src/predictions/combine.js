@@ -28,6 +28,7 @@ import { boneAgeProjection } from './boneAgeProjection.js';
 import { heightVelocity } from './heightVelocity.js';
 import { bmiTrajectory } from './bmiTrajectory.js';
 import { shoeSizeSignal } from './shoeSizeSignal.js';
+import { familyTempo, describeTempo } from './familyTempo.js';
 import {
   tannerStage as tannerStageInput, Z_90, Z_95, MPH_SD_CM,
 } from './constants.js';
@@ -61,6 +62,8 @@ export function combinePredictions(params) {
     siblings = [],
     boneAgeYears = null,
     tannerStage: rawTannerStage = null,
+    motherMenarcheAgeYears = null,
+    fatherMaturation = null,
     heights = [],
   } = params;
 
@@ -74,10 +77,32 @@ export function combinePredictions(params) {
     velocity: heightVelocity({ sex, birthDate, heights }),
     bmi: bmiTrajectory({ birthDate, heights }),
     shoe: shoeSizeSignal({ birthDate, heights }),
+    tempo: familyTempo({ sex, motherMenarcheAgeYears, fatherMaturation }),
   };
 
   const velocityState = signals.velocity.state;
   const bmiRebound = signals.bmi.rebound;
+
+  // Family tempo is a PRIOR on maturation. Bone age and Tanner stage are direct
+  // OBSERVATIONS of the same thing. Letting an inherited expectation stack on
+  // top of a measurement is the same double-counting error as feeding
+  // mid-parental height into a pool that already contains Khamis-Roche.
+  //   - A real bone age supersedes the prior outright.
+  //   - Tanner >= 2 means puberty is visibly under way, so tempo is partly
+  //     observed; keep a fraction of the prior.
+  //   - Tanner 1 or no staging leaves tempo unobserved; the prior stands.
+  const hasBoneAge = boneAgeYears != null && Number.isFinite(Number(boneAgeYears));
+  let tempoWeight = 1;
+  let tempoSuppression = null;
+  if (hasBoneAge) {
+    tempoWeight = 0;
+    tempoSuppression = 'superseded by bone age';
+  } else if (tannerStage != null && tannerStage >= 2) {
+    tempoWeight = 0.4;
+    tempoSuppression = `down-weighted (Tanner ${tannerStage} observed)`;
+  }
+  const effectiveTempoOffset = signals.tempo.offsetYears * tempoWeight;
+  const effectiveTempoSd = signals.tempo.sdYears * (tempoWeight > 0 ? 1 : 0);
 
   // --- 2. Run predictors ---
   const results = {};
@@ -101,6 +126,8 @@ export function combinePredictions(params) {
       sex, birthDate, measurementDate, heightCm: currentHeightCm,
       velocityState: velocityState === 'insufficient' ? null : velocityState,
       tannerStage,
+      tempoOffsetYears: effectiveTempoOffset,
+      tempoSdYears: effectiveTempoSd,
     });
     // Null under age 2 (outside the CDC stature table) -- omit rather than
     // publishing a clamped, badly wrong percentile.
@@ -349,6 +376,14 @@ export function combinePredictions(params) {
       signal: 'bone-age',
       state: `${results.boneAge.boneAgeYears.toFixed(1)} yrs`,
       detail: results.boneAge.category ? `${results.boneAge.category} maturer` : null,
+    });
+  }
+  if (signals.tempo.state !== 'unknown' && signals.tempo.state !== 'average') {
+    activeSignals.push({
+      signal: 'family-tempo',
+      state: describeTempo(signals.tempo),
+      detail: tempoSuppression
+        || `from ${signals.tempo.sources.join(' + ').replace(/-/g, ' ')}`,
     });
   }
   if (validSibs.length > 0) {

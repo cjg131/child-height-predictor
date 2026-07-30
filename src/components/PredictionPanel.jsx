@@ -40,6 +40,7 @@ function SignalBadge({ signal, state, detail }) {
     tanner:         'bg-violet-50 text-violet-700 border-violet-200',
     'bone-age':     'bg-rose-50 text-rose-700 border-rose-200',
     siblings:       'bg-indigo-50 text-indigo-700 border-indigo-200',
+    'family-tempo': 'bg-teal-50 text-teal-700 border-teal-200',
   };
   const cls = palette[signal] || 'bg-slate-50 text-slate-700 border-slate-200';
   return (
@@ -66,6 +67,8 @@ export default function PredictionPanel({ child, latest, heights = [] }) {
       siblings: child.siblings || [],
       boneAgeYears: latest?.boneAgeYears ?? null,
       tannerStage: latest?.tannerStage ?? null,
+      motherMenarcheAgeYears: child.motherMenarcheAgeYears ?? null,
+      fatherMaturation: child.fatherMaturation ?? null,
       heights,
     });
   }, [child, latest, heights]);

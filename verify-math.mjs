@@ -13,6 +13,7 @@ import {
   normalCdf,
   zToPercentile,
 } from './src/predictions/cdcPercentile.js';
+import { familyTempo } from './src/predictions/familyTempo.js';
 import { combinePredictions } from './src/predictions/combine.js';
 import { CDC_STATURE_LMS } from './src/growth-data/cdc-stature-lms.js';
 import { inToCm, lbToKg } from './src/lib/units.js';
@@ -1309,6 +1310,115 @@ import { shoeSizeSignal } from './src/predictions/shoeSizeSignal.js';
   truthy(c.sdCapped === false, 'sd-cap: not engaged when methods agree');
   truthy(c.sdCm < 2.5, 'sd-cap: agreement still yields a tight consensus');
   truthy(c.heterogeneitySdCm < 0.5, 'sd-cap: tau near zero on agreement');
+}
+
+
+// --- Family maturational tempo -------------------------------------------
+{
+  // Direction: a LATE-maturing family means the child is biologically behind,
+  // so more growth remains -> prediction goes UP. Early goes down.
+  const late = familyTempo({ sex: 'female', motherMenarcheAgeYears: 15 });
+  const early = familyTempo({ sex: 'female', motherMenarcheAgeYears: 10.5 });
+  truthy(late.offsetYears > 0, 'tempo: late menarche -> positive offset');
+  truthy(early.offsetYears < 0, 'tempo: early menarche -> negative offset');
+  truthy(late.state === 'late' && early.state === 'early', 'tempo: states labelled');
+
+  // Mother-daughter transmission is stronger than mother-son.
+  const dau = familyTempo({ sex: 'female', motherMenarcheAgeYears: 15 });
+  const son = familyTempo({ sex: 'male', motherMenarcheAgeYears: 15 });
+  truthy(dau.offsetYears > son.offsetYears, 'tempo: same-sex transmission stronger');
+
+  // Average input must not manufacture a signal.
+  const avg = familyTempo({ sex: 'male', motherMenarcheAgeYears: 12.5, fatherMaturation: 'average' });
+  truthy(avg.state === 'average', 'tempo: population-average input -> average');
+  truthy(Math.abs(avg.offsetYears) < 1e-9, 'tempo: average input -> zero offset');
+
+  // No data, and junk data, must both be inert.
+  truthy(familyTempo({ sex: 'male' }).state === 'unknown', 'tempo: no data -> unknown');
+  truthy(
+    familyTempo({ sex: 'male', motherMenarcheAgeYears: 'x', fatherMaturation: 'bogus' }).state === 'unknown',
+    'tempo: junk data -> unknown',
+  );
+  truthy(familyTempo({ sex: 'X', motherMenarcheAgeYears: 15 }).state === 'unknown', 'tempo: bad sex -> unknown');
+
+  // The prior must stay soft: capped, and never zero-uncertainty.
+  const extreme = familyTempo({ sex: 'female', motherMenarcheAgeYears: 18 });
+  truthy(Math.abs(extreme.offsetYears) <= 1.5 + 1e-9, 'tempo: offset capped at 1.5y');
+  truthy(extreme.sdYears > 0, 'tempo: prior always carries uncertainty');
+}
+{
+  const base = {
+    sex: 'male', birthDate: '2014-02-27', measurementDate: '2026-07-30',
+    currentHeightCm: 152, currentWeightKg: 43,
+    motherHeightCm: 165, fatherHeightCm: 180,
+    heights: [{ measurementDate: '2026-07-30', heightCm: 152, weightKg: 43 }],
+  };
+  const run = (extra) => combinePredictions({ ...base, ...extra });
+
+  const none = run({});
+  const lateT = run({ motherMenarcheAgeYears: 15, fatherMaturation: 'late' });
+  const earlyT = run({ motherMenarcheAgeYears: 10.5, fatherMaturation: 'early' });
+
+  truthy(
+    lateT.consensus.predictedAdultHeightCm > none.consensus.predictedAdultHeightCm,
+    'tempo/combine: late family raises the prediction',
+  );
+  truthy(
+    earlyT.consensus.predictedAdultHeightCm < none.consensus.predictedAdultHeightCm,
+    'tempo/combine: early family lowers the prediction',
+  );
+
+  // A soft prior must move the number, but not by more than a real bone age
+  // would. Anything past ~4 cm from parental recall alone is overreach.
+  const shift = Math.abs(
+    lateT.consensus.predictedAdultHeightCm - none.consensus.predictedAdultHeightCm,
+  );
+  truthy(shift > 0.3, `tempo/combine: shift is non-trivial (${shift.toFixed(2)}cm)`);
+  truthy(shift < 4.0, `tempo/combine: shift stays modest (${shift.toFixed(2)}cm)`);
+
+  // Uncertainty must go UP, never down -- this is a prior, not a measurement.
+  const cdcNone = none.results.cdcPercentile.sdCm;
+  const cdcLate = lateT.results.cdcPercentile.sdCm;
+  truthy(cdcLate > cdcNone, 'tempo/combine: SD widens, never tightens');
+
+  // Absent or average data must be a strict no-op.
+  const avg = run({ motherMenarcheAgeYears: 12.5, fatherMaturation: 'average' });
+  truthy(
+    Math.abs(avg.consensus.predictedAdultHeightCm - none.consensus.predictedAdultHeightCm) < 1e-9,
+    'tempo/combine: average family is a no-op',
+  );
+  truthy(
+    !avg.activeSignals.some((a) => a.signal === 'family-tempo'),
+    'tempo/combine: no badge for average tempo',
+  );
+  truthy(
+    lateT.activeSignals.some((a) => a.signal === 'family-tempo'),
+    'tempo/combine: badge shown for late tempo',
+  );
+}
+{
+  // Double-counting guard: an OBSERVED tempo must supersede the inherited prior,
+  // exactly as K-R supersedes mid-parental in the consensus pool.
+  const base = {
+    sex: 'male', birthDate: '2014-02-27', measurementDate: '2026-07-30',
+    currentHeightCm: 152, currentWeightKg: 43,
+    motherHeightCm: 165, fatherHeightCm: 180,
+    motherMenarcheAgeYears: 15, fatherMaturation: 'late',
+    heights: [{ measurementDate: '2026-07-30', heightCm: 152, weightKg: 43 }],
+  };
+  const priorOnly = combinePredictions(base);
+  const withTanner = combinePredictions({ ...base, tannerStage: 3 });
+  const withBoneAge = combinePredictions({ ...base, boneAgeYears: 13 });
+
+  const tempoAdj = (r) => (r.results.cdcPercentile.adjustments || [])
+    .find((a) => a.signal && a.signal.startsWith('family-tempo'));
+
+  truthy(tempoAdj(priorOnly) != null, 'tempo/suppress: prior applies when unobserved');
+  const shiftPrior = Math.abs(tempoAdj(priorOnly).appliedShiftCm);
+  const shiftTanner = tempoAdj(withTanner) ? Math.abs(tempoAdj(withTanner).appliedShiftCm) : 0;
+  truthy(shiftTanner < shiftPrior, 'tempo/suppress: Tanner down-weights the prior');
+  truthy(shiftTanner > 0, 'tempo/suppress: Tanner down-weights but does not erase');
+  truthy(tempoAdj(withBoneAge) == null, 'tempo/suppress: bone age supersedes the prior entirely');
 }
 
 console.log(`\n${passed} passed, ${failed} failed`);

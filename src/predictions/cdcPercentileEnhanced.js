@@ -32,6 +32,20 @@ import { cdcPercentileProjection } from './cdcPercentile.js';
 const TANNER_PCT_BOYS = { 1: 80, 2: 83, 3: 88, 4: 95, 5: 99 };
 const TANNER_PCT_GIRLS = { 1: 85, 2: 88, 3: 94, 4: 97, 5: 99 };
 
+// How much of the tempo-implied shift we actually apply. A hand radiograph read
+// by a radiologist earns 1.0; a parent's recollection of their own puberty does
+// not. See the block in cdcPercentileProjectionEnhanced for the measurement that
+// motivates this being well below 1.
+const TEMPO_TRUST = 0.3;
+const TEMPO_MAX_EXTRA_SD_CM = 3.0;
+
+/** Shift a date by a fractional number of years, returning a Date. */
+function shiftDateByYears(date, years) {
+  const d = date instanceof Date ? new Date(date.getTime()) : new Date(date);
+  d.setTime(d.getTime() + years * 365.25 * 24 * 60 * 60 * 1000);
+  return d;
+}
+
 /**
  * Enhanced projection.
  *
@@ -42,11 +56,53 @@ const TANNER_PCT_GIRLS = { 1: 85, 2: 88, 3: 94, 4: 97, 5: 99 };
 export function cdcPercentileProjectionEnhanced(params) {
   const base = cdcPercentileProjection(params);
   if (base == null) return null;   // outside the CDC 2-20 table, or bad input
-  const { velocityState, tannerStage, sex, heightCm } = params;
+  const {
+    velocityState, tannerStage, sex, heightCm,
+    tempoOffsetYears = 0, tempoSdYears = 0,
+  } = params;
 
   let adjustedPrediction = base.predictedAdultHeightCm;
   let adjustedSd = base.sdCm;
   const adjustments = [];
+
+  // --- Family maturational tempo (prior, not observation) ---
+  //
+  // Re-running the projection against a shifted biological age is the same
+  // mechanism bone age uses. But measured empirically, a one-year age shift
+  // moves the adult prediction by 5-8 cm -- so applying a parental-recall prior
+  // at full strength would swing the answer harder than an actual radiograph
+  // does, which is indefensible. We therefore apply only TEMPO_TRUST of the
+  // shift, and charge for the offset's own uncertainty by widening SD.
+  if (tempoOffsetYears && Math.abs(tempoOffsetYears) > 1e-9) {
+    const shifted = cdcPercentileProjection({
+      ...params,
+      birthDate: shiftDateByYears(params.birthDate, tempoOffsetYears),
+    });
+    if (shifted != null) {
+      const fullShiftCm = shifted.predictedAdultHeightCm - base.predictedAdultHeightCm;
+      const appliedShiftCm = fullShiftCm * TEMPO_TRUST;
+      adjustedPrediction += appliedShiftCm;
+
+      // Relative uncertainty in the offset carries straight through to the
+      // shift. Self-limiting: a tiny offset yields a tiny shift, so even a large
+      // relative error adds little.
+      if (tempoSdYears > 0) {
+        const relative = tempoSdYears / Math.abs(tempoOffsetYears);
+        const extraSd = Math.min(
+          TEMPO_MAX_EXTRA_SD_CM, Math.abs(appliedShiftCm) * relative,
+        );
+        adjustedSd = Math.sqrt(adjustedSd * adjustedSd + extraSd * extraSd);
+      }
+
+      adjustments.push({
+        signal: tempoOffsetYears > 0 ? 'family-tempo-late' : 'family-tempo-early',
+        effect: `Shifted ${appliedShiftCm >= 0 ? '+' : ''}${appliedShiftCm.toFixed(1)} cm `
+          + `for inherited ${tempoOffsetYears > 0 ? 'late' : 'early'} maturation; SD widened`,
+        offsetYears: tempoOffsetYears,
+        appliedShiftCm,
+      });
+    }
+  }
 
   // --- Velocity / PHV adjustments ---
   if (velocityState === 'post-phv') {

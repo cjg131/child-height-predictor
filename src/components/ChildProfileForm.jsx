@@ -103,6 +103,12 @@ export default function ChildProfileForm({
   const [siblings, setSiblings] = useState(
     Array.isArray(initial?.siblings) ? initial.siblings : [],
   );
+  const [motherMenarcheAge, setMotherMenarcheAge] = useState(
+    initial?.motherMenarcheAgeYears != null ? String(initial.motherMenarcheAgeYears) : '',
+  );
+  const [fatherMaturation, setFatherMaturation] = useState(
+    initial?.fatherMaturation ?? '',
+  );
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
 
@@ -134,6 +140,8 @@ export default function ChildProfileForm({
         motherHeightCm: parseHeight(motherFt, motherIn),
         fatherHeightCm: parseHeight(fatherFt, fatherIn),
         siblings: siblings.filter((s) => s.adultHeightCm != null),
+        motherMenarcheAgeYears: motherMenarcheAge ? Number(motherMenarcheAge) : null,
+        fatherMaturation: fatherMaturation || null,
       });
     } catch (err) {
       setError(err.message || 'Save failed');
@@ -176,6 +184,53 @@ export default function ChildProfileForm({
             onChangeFt={setFatherFt} onChangeIn={setFatherIn} />
         </div>
       </fieldset>
+      <fieldset className="border border-slate-200 rounded p-3">
+        <legend className="text-sm font-medium text-slate-700 px-1">
+          Parents&rsquo; own puberty (optional)
+        </legend>
+        <p className="text-[11px] text-slate-500 mb-2">
+          When a child hits puberty is strongly inherited, and it changes how
+          much growth is left at any given height. Without a bone-age X-ray this
+          is the best substitute we have. Skip anything you&rsquo;re unsure of.
+        </p>
+        <div className="space-y-3">
+          <div>
+            <label className="block text-sm font-medium text-slate-700">
+              Mother&rsquo;s age at first period
+            </label>
+            <input
+              type="number" min="8" max="18" step="0.5"
+              value={motherMenarcheAge}
+              onChange={(e) => setMotherMenarcheAge(e.target.value)}
+              placeholder="e.g. 12.5"
+              className="mt-1 w-full border border-slate-300 rounded px-3 py-2"
+            />
+            <p className="text-[11px] text-slate-500 mt-1">
+              Average is about 12&frac12;. Earlier suggests a faster-maturing
+              family, later a slower one.
+            </p>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-slate-700">
+              Father&rsquo;s growth timing
+            </label>
+            <select
+              value={fatherMaturation}
+              onChange={(e) => setFatherMaturation(e.target.value)}
+              className="mt-1 w-full border border-slate-300 rounded px-3 py-2 bg-white"
+            >
+              <option value="">Not sure / skip</option>
+              <option value="early">Early &mdash; done growing by ~15</option>
+              <option value="average">Average &mdash; done around 16&ndash;17</option>
+              <option value="late">Late &mdash; still grew at 18+</option>
+            </select>
+            <p className="text-[11px] text-slate-500 mt-1">
+              A useful jog: did he keep getting taller after high school?
+            </p>
+          </div>
+        </div>
+      </fieldset>
+
       <fieldset className="border border-slate-200 rounded p-3">
         <legend className="text-sm font-medium text-slate-700 px-1">
           Adult siblings (optional, tightens genetic target)
