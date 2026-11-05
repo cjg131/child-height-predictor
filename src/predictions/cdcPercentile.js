@@ -69,6 +69,15 @@ export function inTableRange(ageMonths) {
   );
 }
 
+/**
+ * Public LMS lookup for a sex and age, clamped to the 2-20 table. Used by the
+ * chart to draw a projected growth path; the clamping is fine there because
+ * callers only ask for ages inside the table.
+ */
+export function statureLmsAtAge(sex, ageMonths) {
+  return lmsAtAge(tableForSex(sex), ageMonths);
+}
+
 /** Compute a z-score given LMS parameters and an observed value X. */
 export function zFromLMS(X, L, M, S) {
   if (L === 0) return Math.log(X / M) / S;

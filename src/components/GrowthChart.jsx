@@ -4,6 +4,11 @@
 // age from 2 to 20. We plot them as semi-transparent bands (3-10, 10-25,
 // 25-75 = "normal" range, 75-90, 90-97) so the child's line pops against a
 // familiar growth chart background.
+//
+// When a prediction is available, the projected path from the latest
+// measurement to age 20 is drawn as a dashed line inside a shaded band that
+// widens out to the 95% range at adulthood (see projectionPath in
+// lib/predict.js).
 
 import React, { useMemo } from 'react';
 import {
@@ -20,7 +25,7 @@ const BAND_COLOR = 'rgba(14, 165, 233, 0.10)';
 const LINE_COLOR = 'rgba(14, 165, 233, 0.35)';
 const MEDIAN_COLOR = 'rgba(14, 165, 233, 0.75)';
 
-export default function GrowthChart({ child, heights }) {
+export default function GrowthChart({ child, heights, projection = null }) {
   const curves = useMemo(
     () => cdcPercentileCurves(child.sex, { startMonths: 24, endMonths: 240, stepMonths: 6 }),
     [child.sex],
@@ -47,8 +52,44 @@ export default function GrowthChart({ child, heights }) {
         y: cmToIn(h.heightCm),
       }));
 
+    const proj = projection && projection.length ? projection : null;
+    const projXY = (key) => proj.map((r) => ({ x: r.ageYears, y: cmToIn(r[key]) }));
+    const projectionSets = proj ? [
+      {
+        label: 'Projected range',
+        data: projXY('lowCm'),
+        borderColor: 'rgba(220, 38, 38, 0.25)',
+        borderWidth: 1,
+        pointRadius: 0,
+        fill: false,
+        tension: 0.3,
+      },
+      {
+        label: 'Projected range (high)',
+        data: projXY('highCm'),
+        borderColor: 'rgba(220, 38, 38, 0.25)',
+        backgroundColor: 'rgba(220, 38, 38, 0.10)',
+        borderWidth: 1,
+        pointRadius: 0,
+        fill: '-1',
+        tension: 0.3,
+      },
+      {
+        label: 'Projected path',
+        data: projXY('midCm'),
+        borderColor: '#dc2626',
+        borderWidth: 2,
+        borderDash: [5, 4],
+        pointRadius: (ctx) => (ctx.dataIndex === proj.length - 1 ? 4 : 0),
+        pointBackgroundColor: '#fff',
+        fill: false,
+        tension: 0.3,
+      },
+    ] : [];
+
     return {
       datasets: [
+        ...projectionSets,
         band('p3', false),
         band('p10', '-1'),
         band('p25', '-1'),
@@ -79,7 +120,12 @@ export default function GrowthChart({ child, heights }) {
         },
       ],
     };
-  }, [child, heights, curves]);
+  }, [child, heights, curves, projection]);
+
+  const minAge = useMemo(() => {
+    const youngest = Math.min(...heights.map((h) => ageInMonths(child.birthDate, h.measurementDate) / 12));
+    return Number.isFinite(youngest) && youngest < 2 ? 0 : 2;
+  }, [child.birthDate, heights]);
 
   const options = useMemo(() => ({
     responsive: true,
@@ -89,7 +135,8 @@ export default function GrowthChart({ child, heights }) {
         labels: {
           // Only the named series and the median line in the legend. The
           // bands are self-explanatory once rendered.
-          filter: (item) => item.text === child.name || item.text === '50th pct',
+          filter: (item) => item.text === child.name || item.text === '50th pct'
+            || item.text === 'Projected path' || item.text === 'Projected range',
         },
       },
       tooltip: {
@@ -110,18 +157,20 @@ export default function GrowthChart({ child, heights }) {
       x: {
         type: 'linear',
         title: { display: true, text: 'Age (years)' },
-        min: 2,
+        // Infant readings (under 2) sit left of the CDC bands, which start at
+        // age 2. Show them rather than silently cropping them off.
+        min: minAge,
         max: 20,
         ticks: { stepSize: 2 },
       },
       y: {
         type: 'linear',
         title: { display: true, text: 'Height (inches)' },
-        min: 30,
+        min: minAge < 2 ? 15 : 30,
         max: 80,
       },
     },
-  }), [child.name]);
+  }), [child.name, minAge]);
 
   if (!heights.length) {
     return (

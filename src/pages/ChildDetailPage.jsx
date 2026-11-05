@@ -1,15 +1,19 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext.jsx';
 import {
-  getChild, listHeights, addHeight, updateHeight, deleteHeight,
-  updateChild, deleteChild,
+  getChild, listHeights, addHeight, updateHeight, trashHeight,
+  updateChild, trashChild,
 } from '../lib/children.js';
 import AddHeightForm from '../components/AddHeightForm.jsx';
 import GrowthChart from '../components/GrowthChart.jsx';
 import PredictionPanel from '../components/PredictionPanel.jsx';
 import HeightTable from '../components/HeightTable.jsx';
 import ChildProfileForm from '../components/ChildProfileForm.jsx';
+import PredictionHistoryChart from '../components/PredictionHistoryChart.jsx';
+import DataQualityPanel from '../components/DataQualityPanel.jsx';
+import { predictForChild, projectionPath } from '../lib/predict.js';
+import { auditChild } from '../lib/dataQuality.js';
 import { getFamily, resolveParentData } from '../lib/family.js';
 import { ageInYears, formatFeetInches as parentFtIn } from '../lib/units.js';
 
@@ -59,8 +63,8 @@ export default function ChildDetailPage() {
   };
 
   const onDeleteHeight = async (id) => {
-    if (!confirm('Delete this measurement?')) return;
-    await deleteHeight(user.uid, childId, id);
+    if (!confirm('Move this measurement to the trash? You can restore it from the Trash page.')) return;
+    await trashHeight(user.uid, childId, id);
     await reload();
   };
 
@@ -71,17 +75,40 @@ export default function ChildDetailPage() {
   };
 
   const onDeleteChild = async () => {
-    if (!confirm(`Delete ${child.name} and all their measurements? This can't be undone.`)) return;
-    await deleteChild(user.uid, childId);
+    if (!confirm(`Move ${child.name} to the trash? Their measurements are kept, and you can restore everything from the Trash page.`)) return;
+    await trashChild(user.uid, childId);
     navigate('/');
   };
 
-  if (error) return <p className="text-red-600">Error: {error}</p>;
-  if (loading || !child) return <p>Loading...</p>;
-
-  const latest = heights.length ? heights[heights.length - 1] : null;
   // Family record wins field-by-field; children saved before the Parents page
   // existed still carry their own copies, which are used as the fallback.
+  const resolvedChild = useMemo(
+    () => (child ? { ...child, ...resolveParentData(family, child) } : null),
+    [child, family],
+  );
+  const projection = useMemo(() => {
+    if (!resolvedChild || !heights.length) return null;
+    const p = predictForChild(resolvedChild, heights);
+    return projectionPath({
+      sex: resolvedChild.sex,
+      birthDate: resolvedChild.birthDate,
+      latest: heights[heights.length - 1],
+      consensus: p?.consensus,
+    });
+  }, [resolvedChild, heights]);
+  const flags = useMemo(() => (child ? auditChild(child, heights) : []), [child, heights]);
+
+  if (error) return <p className="text-red-600">Error: {error}</p>;
+  if (loading || !child) return <p>Loading...</p>;
+  if (child.deletedAt) {
+    return (
+      <p className="text-slate-600">
+        {child.name} is in the trash. <Link to="/trash" className="text-brand-600 underline">Restore from Trash</Link>
+      </p>
+    );
+  }
+
+  const latest = heights.length ? heights[heights.length - 1] : null;
   const parents = resolveParentData(family, child);
   const ageY = ageInYears(child.birthDate, new Date());
 
@@ -109,7 +136,7 @@ export default function ChildDetailPage() {
           </button>
           <button onClick={onDeleteChild}
             className="text-sm text-red-600 hover:text-red-700 underline">
-            Delete child
+            Move to trash
           </button>
         </div>
       </div>
@@ -127,22 +154,34 @@ export default function ChildDetailPage() {
 
       <section className="bg-white rounded-lg shadow p-4">
         <h3 className="text-lg font-semibold mb-2">Growth chart</h3>
-        <GrowthChart child={child} heights={heights} />
+        <GrowthChart child={child} heights={heights} projection={projection} />
+        {projection && (
+          <p className="text-xs text-slate-500 mt-2">
+            Dashed line: projected path to age 20. Shaded red: the 95% range, which widens toward adulthood.
+          </p>
+        )}
       </section>
+
+      <DataQualityPanel flags={flags} />
 
       <section className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div className="bg-white rounded-lg shadow p-4">
           <h3 className="text-lg font-semibold mb-2">Add measurement</h3>
-          <AddHeightForm onAdd={onAddHeight} />
+          <AddHeightForm onAdd={onAddHeight} child={child} existing={heights} />
         </div>
         <div className="bg-white rounded-lg shadow p-4">
           <h3 className="text-lg font-semibold mb-2">Adult height prediction</h3>
           <PredictionPanel
-            child={{ ...child, ...parents }}
+            child={resolvedChild}
             latest={latest}
             heights={heights}
           />
         </div>
+      </section>
+
+      <section className="bg-white rounded-lg shadow p-4">
+        <h3 className="text-lg font-semibold mb-2">How the prediction has changed</h3>
+        <PredictionHistoryChart child={resolvedChild} heights={heights} />
       </section>
 
       <section className="bg-white rounded-lg shadow p-4">

@@ -12,6 +12,7 @@ import {
   formatFeetInchesPrecise, ageInYears,
 } from '../lib/units.js';
 import { cdcStatureZ, zToPercentile } from '../predictions/cdcPercentile.js';
+import { growthRates } from '../lib/predict.js';
 
 function ftInToInches(ft, inches) {
   const f = Number(ft) || 0;
@@ -91,7 +92,7 @@ function EditRow({ h, onSave, onCancel }) {
 
   return (
     <tr className="bg-brand-50 border-b border-slate-100">
-      <td colSpan={7} className="py-3 px-2">
+      <td colSpan={8} className="py-3 px-2">
         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3">
           <div>
             <label className="block text-xs text-slate-600">Date</label>
@@ -185,6 +186,7 @@ function EditRow({ h, onSave, onCancel }) {
 
 export default function HeightTable({ heights, child, onUpdate, onDelete }) {
   const [editingId, setEditingId] = useState(null);
+  const rates = useMemo(() => growthRates(heights), [heights]);
 
   if (!heights.length) return <p className="text-slate-600">No measurements yet.</p>;
 
@@ -202,6 +204,7 @@ export default function HeightTable({ heights, child, onUpdate, onDelete }) {
             <th>Age</th>
             <th>Height</th>
             <th>%ile</th>
+            <th title="Growth pace since the previous measurement">Pace</th>
             <th>Weight</th>
             <th>Note</th>
             <th></th>
@@ -233,6 +236,9 @@ export default function HeightTable({ heights, child, onUpdate, onDelete }) {
                 <td>{age.toFixed(1)}</td>
                 <td>{formatHeight(h.heightCm)}</td>
                 <td>{z ? zToPercentile(z.z).toFixed(0) : '\u2014'}</td>
+                <td className="text-slate-600 whitespace-nowrap">
+                  {rates[h.id] != null ? `${cmToIn(rates[h.id]).toFixed(1)} in/yr` : ''}
+                </td>
                 <td>{h.weightKg ? `${kgToLb(h.weightKg).toFixed(1)} lb` : '-'}</td>
                 <td className="text-slate-600">{h.note || ''}</td>
                 <td className="whitespace-nowrap">
@@ -242,7 +248,7 @@ export default function HeightTable({ heights, child, onUpdate, onDelete }) {
                   </button>
                   <button onClick={() => onDelete(h.id)}
                     className="text-red-600 hover:text-red-700 text-xs">
-                    delete
+                    trash
                   </button>
                 </td>
               </tr>

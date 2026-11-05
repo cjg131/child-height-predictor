@@ -20,6 +20,10 @@ jobs:
       - run: npm run verify
         continue-on-error: false
 
+      # Unit tests and lint gate the deploy too, so a broken build never ships.
+      - run: npm test
+      - run: npm run lint
+
       - run: npm run build
         env:
           VITE_FIREBASE_API_KEY: AIzaSyD67sHoAZLF5I6NDr0DTaXneyPAL_imJJo

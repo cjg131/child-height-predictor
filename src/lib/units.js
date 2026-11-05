@@ -70,3 +70,11 @@ export function ageInYears(birthDate, measurementDate) {
 export function ageInMonths(birthDate, measurementDate) {
   return ageInYears(birthDate, measurementDate) * 12;
 }
+
+// Today's date as YYYY-MM-DD in the viewer's own time zone. toISOString()
+// is UTC, so after 7 or 8pm in New York it returns tomorrow's date and a
+// measurement taken tonight would be saved as tomorrow.
+export function localDateIso(d = new Date()) {
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}

@@ -1,7 +1,8 @@
 import React, { useMemo, useState } from 'react';
 import {
-  inToCm, lbOzToKg, formatFeetInchesPrecise,
+  inToCm, lbOzToKg, formatFeetInchesPrecise, localDateIso,
 } from '../lib/units.js';
+import { checkNewMeasurement } from '../lib/dataQuality.js';
 
 function ftInToInches(ft, inches) {
   const f = Number(ft) || 0;
@@ -10,8 +11,8 @@ function ftInToInches(ft, inches) {
   return f * 12 + i;
 }
 
-export default function AddHeightForm({ onAdd }) {
-  const today = new Date().toISOString().slice(0, 10);
+export default function AddHeightForm({ onAdd, child = null, existing = [] }) {
+  const today = localDateIso();
   const [date, setDate] = useState(today);
   const [heightFt, setHeightFt] = useState('');
   const [heightIn, setHeightIn] = useState('');
@@ -24,6 +25,9 @@ export default function AddHeightForm({ onAdd }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
   const [showAdvanced, setShowAdvanced] = useState(false);
+  // Warnings the person has already seen for the exact values on screen. A
+  // second click on Save with the same values means "yes, I'm sure".
+  const [ackedWarnings, setAckedWarnings] = useState(null);
 
   const heightPreview = useMemo(() => {
     const total = ftInToInches(heightFt, heightIn);
@@ -51,6 +55,16 @@ export default function AddHeightForm({ onAdd }) {
     }
     const heightCm = inToCm(total);
     const weightKg = lbOzToKg(weightLb, weightOz);
+    if (child) {
+      const issues = checkNewMeasurement({ child, existing, measurementDate: date, heightCm });
+      const block = issues.find((i) => i.level === 'block');
+      if (block) { setError(block.message); return; }
+      const key = `${date}|${heightCm}`;
+      if (issues.length && ackedWarnings?.key !== key) {
+        setAckedWarnings({ key, issues });
+        return;
+      }
+    }
     setBusy(true);
     try {
       await onAdd({
@@ -66,6 +80,7 @@ export default function AddHeightForm({ onAdd }) {
       setWeightLb(''); setWeightOz('');
       setTannerStage(''); setShoeSizeUs(''); setBoneAgeYears('');
       setNote('');
+      setAckedWarnings(null);
     } catch (err) {
       setError(err.message || 'Save failed');
     } finally {
@@ -171,9 +186,17 @@ export default function AddHeightForm({ onAdd }) {
       </div>
 
       {error && <p className="text-sm text-red-600">{error}</p>}
+      {ackedWarnings && (
+        <div className="text-sm bg-amber-50 border border-amber-200 rounded p-2 text-amber-900">
+          <ul className="list-disc pl-5 space-y-1">
+            {ackedWarnings.issues.map((i, n) => <li key={n}>{i.message}</li>)}
+          </ul>
+          <p className="mt-1 text-xs">Fix the numbers, or click Save again to keep them as entered.</p>
+        </div>
+      )}
       <button type="submit" disabled={busy}
         className="bg-brand-600 hover:bg-brand-700 text-white rounded px-4 py-2 font-medium disabled:opacity-50">
-        {busy ? 'Saving...' : 'Save measurement'}
+        {busy ? 'Saving...' : ackedWarnings ? 'Save anyway' : 'Save measurement'}
       </button>
     </form>
   );

@@ -7,7 +7,7 @@
 
 import { Link } from 'react-router-dom';
 import React, { useMemo } from 'react';
-import { combinePredictions } from '../predictions/index.js';
+import { predictForChild } from '../lib/predict.js';
 import { formatFeetInches, cmToIn } from '../lib/units.js';
 
 function MethodRow({ label, cm, sdCm, weightPct, note }) {
@@ -54,25 +54,11 @@ function SignalBadge({ signal, state, detail }) {
 }
 
 export default function PredictionPanel({ child, latest, heights = [] }) {
+  // `latest` only drives the copy below; the engine reads the full history
+  // (including the latest reading) through predictForChild.
   const hasMeasurement = latest != null;
 
-  const prediction = useMemo(() => {
-    return combinePredictions({
-      sex: child.sex,
-      birthDate: child.birthDate,
-      measurementDate: latest?.measurementDate ?? null,
-      currentHeightCm: latest?.heightCm ?? null,
-      currentWeightKg: latest?.weightKg ?? null,
-      motherHeightCm: child.motherHeightCm ?? null,
-      fatherHeightCm: child.fatherHeightCm ?? null,
-      siblings: child.siblings || [],
-      boneAgeYears: latest?.boneAgeYears ?? null,
-      tannerStage: latest?.tannerStage ?? null,
-      motherMenarcheAgeYears: child.motherMenarcheAgeYears ?? null,
-      fatherMaturation: child.fatherMaturation ?? null,
-      heights,
-    });
-  }, [child, latest, heights]);
+  const prediction = useMemo(() => predictForChild(child, heights), [child, heights]);
 
   if (!prediction || !prediction.consensus) {
     return (
